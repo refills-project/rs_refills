@@ -47,8 +47,7 @@ generate_type_system(robosherlock)
 #find all relevant files
 find_additional_files()
 ################################################################################
-## Sub Projects                                                               ##
-################################################################################
-#If you want to divide your projects into subprojects include the subdirectories
-#each containing a CMakeLists.txt here
-#add_subdirectory(src/xxx)
+
+rs_add_library(rs_shelfDetector src/ShelfDetector.cpp)
+target_link_libraries(rs_shelfDetector ${catkin_LIBRARIES})
+
