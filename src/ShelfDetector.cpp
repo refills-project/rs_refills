@@ -136,8 +136,8 @@ public:
 
     pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
     pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *edge_cloud, eigenTransform);
-//    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
-//    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
 
     std::vector<float> xz_plane{0.0,1.0,0.0,0.5};
     projectPointCloudOnPlane(edge_cloud,xz_plane);
@@ -187,16 +187,16 @@ public:
         outInfo("variance is : "<< var);
         outInfo("Line inliers found: " << inliers->indices.size());
         line_inliers_.push_back(inliers);
-        ei.setInputCloud(edge_cloud);
-        ei.setIndices(inliers);
-        ei.setNegative(true);
-        ei.setKeepOrganized(true);
-        ei.filterDirectly(edge_cloud);
       }
       else{
         outWarn("variance was: "<<var);
         outWarn("inliers was:  "<< inliers->indices.size());
       }
+      ei.setInputCloud(edge_cloud);
+      ei.setIndices(inliers);
+      ei.setNegative(true);
+      ei.setKeepOrganized(true);
+      ei.filterDirectly(edge_cloud);
     }
 
     outInfo("Cloud size: " << cloud_->points.size());
