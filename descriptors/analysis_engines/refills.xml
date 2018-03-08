@@ -157,6 +157,7 @@
         <value>
         <array>
           <string>shelf_system_1</string>
+          <string>shelf_system_2</string>
         </array>
         </value>
       </nameValuePair>
@@ -166,7 +167,7 @@
     </configurationParameterSettings>
     <flowConstraints>
       <fixedFlow>
-<!--       <node>Trigger</node>-->
+       <node>Trigger</node>
        <node>CollectionReader</node>
        <node>ImagePreprocessor</node>
        <node>RegionFilter</node>

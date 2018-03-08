@@ -9,10 +9,24 @@
     <version>1.0</version>
     <vendor/>
     <configurationParameters>
-
+      <configurationParameter>
+        <name>min_line_inliers</name>
+        <type>Integer</type>
+        <multiValued>false</multiValued>
+        <mandatory>true</mandatory>
+      </configurationParameter>
     </configurationParameters>
+
     <configurationParameterSettings>
+
+      <nameValuePair>
+      <name>min_line_inliers</name>
+        <value>
+          <integer>50</integer>
+        </value>
+      </nameValuePair>
     </configurationParameterSettings>
+
     <typeSystemDescription>
         <imports>
             <import location="../typesystem/all_types.xml"/>
