@@ -37,6 +37,7 @@ class ShelfDetector : public DrawingAnnotator
   std::vector<pcl::PointIndicesPtr> line_inliers_;
 
   int min_line_inliers_;
+  float max_variance_;
 public:
 
   ShelfDetector(): DrawingAnnotator(__func__), min_line_inliers_(50)
@@ -53,6 +54,7 @@ public:
   {
     outInfo("initialize");
     ctx.extractValue("min_line_inliers", min_line_inliers_);
+    ctx.extractValue("max_variance", max_variance_);
     setAnnotatorContext(ctx);
     return UIMA_ERR_NONE;
   }
@@ -182,7 +184,7 @@ public:
 
 
       //the variance on y needs to be small
-      if(inliers->indices.size() > min_line_inliers_ && var < 0.012)
+      if(inliers->indices.size() > min_line_inliers_ && var < max_variance_)
       {
         outInfo("variance is : "<< var);
         outInfo("Line inliers found: " << inliers->indices.size());

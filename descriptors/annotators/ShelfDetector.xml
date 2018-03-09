@@ -15,6 +15,14 @@
         <multiValued>false</multiValued>
         <mandatory>true</mandatory>
       </configurationParameter>
+
+      <configurationParameter>
+        <name>max_variance</name>
+        <type>Float</type>
+        <multiValued>false</multiValued>
+        <mandatory>true</mandatory>
+      </configurationParameter>
+
     </configurationParameters>
 
     <configurationParameterSettings>
@@ -23,6 +31,13 @@
       <name>min_line_inliers</name>
         <value>
           <integer>50</integer>
+        </value>
+      </nameValuePair>
+
+      <nameValuePair>
+        <name>max_variance</name>
+        <value>
+          <float>0.012</float>
         </value>
       </nameValuePair>
     </configurationParameterSettings>
