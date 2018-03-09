@@ -30,14 +30,14 @@
       <nameValuePair>
       <name>min_line_inliers</name>
         <value>
-          <integer>50</integer>
+          <integer>40</integer>
         </value>
       </nameValuePair>
 
       <nameValuePair>
         <name>max_variance</name>
         <value>
-          <float>0.012</float>
+          <float>0.01</float>
         </value>
       </nameValuePair>
     </configurationParameterSettings>

@@ -16,6 +16,7 @@
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_line.h>
 #include <pcl/sample_consensus/sac_model_parallel_line.h>
+#include <pcl/ModelCoefficients.h>
 
 #include <rs/types/all_types.h>
 #include <rs/scene_cas.h>
@@ -36,17 +37,27 @@ class ShelfDetector : public DrawingAnnotator
   std::vector<pcl::PointIndices> label_indices_;
   std::vector<pcl::PointIndicesPtr> line_inliers_;
 
+  std::vector<Eigen::VectorXf> line_models_;
+
   int min_line_inliers_;
   float max_variance_;
+
+  struct Line
+  {
+    pcl::PointXYZRGBA pt_begin;
+    pcl::PointXYZRGBA pt_end;
+  };
+
+  std::vector<Line> lines_;
+
 public:
 
-  ShelfDetector(): DrawingAnnotator(__func__), min_line_inliers_(50)
+  ShelfDetector(): DrawingAnnotator(__func__), min_line_inliers_(50), max_variance_(0.01)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_filtered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
-
 
   }
 
@@ -70,17 +81,62 @@ public:
     assert(plane_model.size() == 4);
     cv::Point3f normal(plane_model[0], plane_model[1], plane_model[2]);
     float planeDist = plane_model[3];
-    cv::Point3f point(pt.x,pt.y,pt.z);
+    cv::Point3f point(pt.x, pt.y, pt.z);
     float pointDist = point.dot(normal);
     float t = planeDist + pointDist;
     cv::Point3f projected = point - normal * t;
-    pt.x = projected.x;pt.z = projected.z;pt.y = projected.y;
+    pt.x = projected.x;
+    pt.z = projected.z;
+    pt.y = projected.y;
   }
 
   void projectPointCloudOnPlane(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud, const std::vector<float> &plane_model)
   {
-    for(auto &p: cloud->points)
-      projectPointOnPlane(p,plane_model);
+    for(auto &p : cloud->points)
+      projectPointOnPlane(p, plane_model);
+  }
+
+  void solveLineIds()
+  {
+    for(auto inliers : line_inliers_)
+    {
+      Line line;
+      line.pt_begin = cloud_filtered_->points[inliers->indices[0]];
+      line.pt_begin = cloud_filtered_->points[inliers->indices[0]];
+      std::for_each(inliers->indices.begin() + 1, inliers->indices.end(), [&line, this](int n)
+      {
+        if(this->cloud_filtered_->points[n].x < line.pt_begin.x)
+        {
+          line.pt_begin = this->cloud_filtered_->points[n];
+        }
+
+        if(this->cloud_filtered_->points[n].x > line.pt_begin.x)
+        {
+          line.pt_end = this->cloud_filtered_->points[n];
+        }
+      });
+      bool found = false;
+      for (auto &l :lines_)
+      {
+         double dist = rs::common::pointToPointDistanceSqrt(l.pt_begin.x, l.pt_begin.y,l.pt_begin.z, line.pt_begin.x, line.pt_begin.y, line.pt_begin.z);
+         if(dist < 0.06)
+         {
+            found = true;
+            l.pt_begin.x = (l.pt_begin.x + line.pt_begin.x)/2;
+            l.pt_begin.y = (l.pt_begin.y + line.pt_begin.y)/2;
+            l.pt_begin.z = (l.pt_begin.z + line.pt_begin.z)/2;
+
+            l.pt_end.x = (l.pt_end.x + line.pt_end.x)/2;
+            l.pt_end.y = (l.pt_end.y + line.pt_end.y)/2;
+            l.pt_end.z = (l.pt_end.z + line.pt_end.z)/2;
+
+            break;
+         }
+      }
+
+      if(!found)
+        lines_.push_back(line);
+    }
   }
 
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
@@ -95,13 +151,19 @@ public:
     cas.get(VIEW_CLOUD, *cloud_);
     cas.get(VIEW_NORMALS, *normals_);
     rs::Scene scene = cas.getScene();
-    tf::StampedTransform camToWorld,worldToCam;
-    rs::conversion::from(scene.viewPoint.get(),camToWorld);
+    tf::StampedTransform camToWorld, worldToCam;
+    rs::conversion::from(scene.viewPoint.get(), camToWorld);
 
     Eigen::Affine3d eigenTransform;
     tf::transformTFToEigen(camToWorld, eigenTransform);
 
+    //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *edge_cloud, eigenTransform);
+    //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+
+
     pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
+
     sor.setInputCloud(cloud_);
     sor.setKeepOrganized(true);
     sor.setMeanK(100);
@@ -136,15 +198,11 @@ public:
     vg.setLeafSize(0.02, 0.02, 0.02);
     vg.filter(*cloud_filtered_);
 
-    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *edge_cloud, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+    //    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
+    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud = cloud_filtered_->makeShared();
 
-    std::vector<float> xz_plane{0.0,1.0,0.0,0.5};
-    projectPointCloudOnPlane(edge_cloud,xz_plane);
-
-//    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud = cloud_filtered_->makeShared();
+    std::vector<float> xz_plane{0.0, 1.0, 0.0, 0.5};
+    projectPointCloudOnPlane(edge_cloud, xz_plane);
 
     //TODO what should be a stop criteria here?
     int count = 0;
@@ -168,31 +226,38 @@ public:
       pcl::PointIndicesPtr inliers(new pcl::PointIndices());
       ransac.getInliers(inliers->indices);
 
-      float avg_y=0;
-      std::for_each(inliers->indices.begin(), inliers->indices.end(), [&avg_y,this](int n){
+      float avg_y = 0;
+      std::for_each(inliers->indices.begin(), inliers->indices.end(), [&avg_y, this](int n)
+      {
         avg_y += this->cloud_filtered_->points[n].y;
       }
-      );
-      avg_y = avg_y/inliers->indices.size();
+                   );
+      avg_y = avg_y / inliers->indices.size();
       float ssd = 0;
-      std::for_each(inliers->indices.begin(), inliers->indices.end(), [avg_y,&ssd,this](int n){
-        ssd += (this->cloud_filtered_->points[n].y - avg_y)*(this->cloud_filtered_->points[n].y - avg_y);
+      std::for_each(inliers->indices.begin(), inliers->indices.end(), [avg_y, &ssd, this](int n)
+      {
+        ssd += (this->cloud_filtered_->points[n].y - avg_y) * (this->cloud_filtered_->points[n].y - avg_y);
       }
-      );
+                   );
 
-      float var = std::sqrt(ssd/(inliers->indices.size()));
+      float var = std::sqrt(ssd / (inliers->indices.size()));
 
 
       //the variance on y needs to be small
       if(inliers->indices.size() > min_line_inliers_ && var < max_variance_)
       {
-        outInfo("variance is : "<< var);
+        outInfo("variance is : " << var);
         outInfo("Line inliers found: " << inliers->indices.size());
+        Eigen::VectorXf model_coeffs;
+        ransac.getModelCoefficients(model_coeffs);
+        outInfo("x = " << model_coeffs[0] << " y = " << model_coeffs[1] << " z = " << model_coeffs[2]);
+        line_models_.push_back(model_coeffs);
         line_inliers_.push_back(inliers);
       }
-      else{
-        outWarn("variance was: "<<var);
-        outWarn("inliers was:  "<< inliers->indices.size());
+      else
+      {
+        outWarn("variance was: " << var);
+        outWarn("inliers was:  " << inliers->indices.size());
       }
       ei.setInputCloud(edge_cloud);
       ei.setIndices(inliers);
@@ -203,6 +268,8 @@ public:
 
     outInfo("Cloud size: " << cloud_->points.size());
     outInfo("took: " << clock.getTime() << " ms.");
+
+    solveLineIds();
     return UIMA_ERR_NONE;
   }
 
@@ -211,14 +278,23 @@ public:
     const std::string &cloudname = "cloud";
     outInfo("Cloud Filtered size: " << cloud_filtered_->points.size());
     double pointSize = 10.0;
-    double pointSize2 = pointSize/4.0;
+    double pointSize2 = pointSize / 4.0;
     for(int i = 0; i < line_inliers_.size(); ++i)
     {
       for(int j = 0; j < line_inliers_[i]->indices.size(); ++j)
       {
-          cloud_filtered_->points[line_inliers_[i]->indices[j]].rgba = rs::common::colors[i];
-          cloud_filtered_->points[line_inliers_[i]->indices[j]].a = 255;
+        cloud_filtered_->points[line_inliers_[i]->indices[j]].rgba = rs::common::colors[i];
+        cloud_filtered_->points[line_inliers_[i]->indices[j]].a = 255;
       }
+    }
+
+    int idx = 0;
+
+    for(auto line : lines_)
+    {
+      std::stringstream lineName;
+      lineName << "line_" << idx++;
+      visualizer.addLine(line.pt_begin, line.pt_end, lineName.str());
     }
 
     if(firstRun)
@@ -230,6 +306,7 @@ public:
     }
     else
     {
+
       visualizer.updatePointCloud(cloud_, "original");
       visualizer.updatePointCloud(cloud_filtered_, cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);

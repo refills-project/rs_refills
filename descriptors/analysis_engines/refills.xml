@@ -146,8 +146,8 @@
         <name>camera_config_files</name>
         <value>
           <array>
-<!--            <string>config_realsense_donbot.ini</string>-->
-            <string>config_refills_mongo.ini</string>
+            <string>config_realsense_donbot.ini</string>
+          <!--  <string>config_refills_mongo.ini</string>-->
           </array>
         </value>
       </nameValuePair>
@@ -157,7 +157,7 @@
         <value>
         <array>
           <string>shelf_system_1</string>
-          <string>shelf_system_2</string>
+<!--          <string>shelf_system_2</string>-->
         </array>
         </value>
       </nameValuePair>
