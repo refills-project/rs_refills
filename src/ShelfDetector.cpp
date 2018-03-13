@@ -1,5 +1,8 @@
 #include <uima/api.hpp>
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include <tf_conversions/tf_eigen.h>
 
 #include <pcl/point_types.h>
@@ -46,6 +49,7 @@ class ShelfDetector : public DrawingAnnotator
   {
     pcl::PointXYZRGBA pt_begin;
     pcl::PointXYZRGBA pt_end;
+    uint8_t id;
   };
 
   std::vector<Line> lines_;
@@ -116,26 +120,57 @@ public:
         }
       });
       bool found = false;
-      for (auto &l :lines_)
+      for(auto &l : lines_)
       {
-         double dist = rs::common::pointToPointDistanceSqrt(l.pt_begin.x, l.pt_begin.y,l.pt_begin.z, line.pt_begin.x, line.pt_begin.y, line.pt_begin.z);
-         if(dist < 0.06)
-         {
-            found = true;
-            l.pt_begin.x = (l.pt_begin.x + line.pt_begin.x)/2;
-            l.pt_begin.y = (l.pt_begin.y + line.pt_begin.y)/2;
-            l.pt_begin.z = (l.pt_begin.z + line.pt_begin.z)/2;
+        double dist = rs::common::pointToPointDistanceSqrt(l.pt_begin.x, l.pt_begin.y, l.pt_begin.z, line.pt_begin.x, line.pt_begin.y, line.pt_begin.z);
+        if(dist < 0.06)
+        {
+          found = true;
+          l.pt_begin.x = (l.pt_begin.x + line.pt_begin.x) / 2;
+          l.pt_begin.y = (l.pt_begin.y + line.pt_begin.y) / 2;
+          l.pt_begin.z = (l.pt_begin.z + line.pt_begin.z) / 2;
 
-            l.pt_end.x = (l.pt_end.x + line.pt_end.x)/2;
-            l.pt_end.y = (l.pt_end.y + line.pt_end.y)/2;
-            l.pt_end.z = (l.pt_end.z + line.pt_end.z)/2;
+          l.pt_end.x = (l.pt_end.x + line.pt_end.x) / 2;
+          l.pt_end.y = (l.pt_end.y + line.pt_end.y) / 2;
+          l.pt_end.z = (l.pt_end.z + line.pt_end.z) / 2;
 
-            break;
-         }
+          break;
+        }
       }
 
       if(!found)
+      {
+        line.id = lines_.size();
         lines_.push_back(line);
+      }
+    }
+  }
+
+  void addToCas(CAS &tcas)
+  {
+    rs::SceneCas cas(tcas);
+    rs::Scene scene = cas.getScene();
+
+    for(auto line : lines_)
+    {
+      rs::Cluster hyp = rs::create<rs::Cluster>(tcas);
+      rs::Detection detection = rs::create<rs::Detection>(tcas);
+      detection.source.set("ShelfDetector");
+      detection.name.set(std::to_string(line.id));
+      tf::Stamped<tf::Pose> pose;
+      pose.setOrigin(tf::Vector3(line.pt_begin.x, line.pt_begin.y, line.pt_begin.z));
+      pose.setRotation(tf::Quaternion(0,0,0,1));
+      pose.frame_id_ = "map";
+      uint64_t ts = scene.timestamp();
+      pose.stamp_ = ros::Time().fromNSec(ts);
+      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
+      poseAnnotation.source.set("ShelfDetector");
+      poseAnnotation.world.set(rs::conversion::to(tcas, pose));
+      poseAnnotation.camera.set(rs::conversion::to(tcas, pose));
+
+      hyp.annotations.append(detection);
+      hyp.annotations.append(poseAnnotation);
+      scene.identifiables.append(hyp);
     }
   }
 
@@ -270,6 +305,9 @@ public:
     outInfo("took: " << clock.getTime() << " ms.");
 
     solveLineIds();
+    addToCas(tcas);
+
+    //TODO: check the query at every iteration. see if stop was sent; If so reset container;
     return UIMA_ERR_NONE;
   }
 
@@ -295,8 +333,8 @@ public:
       std::stringstream lineName;
       lineName << "line_" << idx++;
       visualizer.addLine(line.pt_begin, line.pt_end, lineName.str());
-      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH,4.0,lineName.str());
-      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR,1.0,0.0,0.0,lineName.str());
+      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 4.0, lineName.str());
+      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, lineName.str());
 
     }
 

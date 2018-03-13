@@ -90,6 +90,9 @@ public:
         else if(command == "stop")
         {
           waitForServiceCall_ = true;
+          engine_.process(newPipelineOrder, true, res);
+          processing_mutex_.unlock();
+          return true;
         }
       }
     }
@@ -124,7 +127,7 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  ros::init(argc, argv, std::string("RoboSherlock_") + getenv("USER"));
+  ros::init(argc, argv, std::string("RoboSherlock"));
   ros::NodeHandle nh("~");
 
   std::string analysisEnginesName, analysisEngineFile;
