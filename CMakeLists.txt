@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(rs_refills)
-find_package(catkin REQUIRED robosherlock)
+find_package(catkin REQUIRED robosherlock rs_queryanswering)
 ################################################################################
 ## Constants for project                                                      ##
 ################################################################################
@@ -41,9 +41,9 @@ include_directories(
 ## Update analysis engines, typesystem and include all relevant files         ##
 ################################################################################
 ##Update xml list of annotators inside analysis engines
-update_analysis_engines(robosherlock)
+update_analysis_engines(robosherlock rs_queryanswering)
 ## generate classes from the typesystem xml files
-generate_type_system(robosherlock)
+generate_type_system(robosherlock rs_queryanswering)
 #find all relevant files
 find_additional_files()
 ################################################################################
@@ -51,3 +51,5 @@ find_additional_files()
 rs_add_library(rs_shelfDetector src/ShelfDetector.cpp)
 target_link_libraries(rs_shelfDetector ${catkin_LIBRARIES})
 
+rs_add_executable(processing_engine src/run.cpp)
+target_link_libraries(processing_engine ${catkin_LIBRARIES})

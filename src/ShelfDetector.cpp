@@ -277,7 +277,7 @@ public:
   {
     const std::string &cloudname = "cloud";
     outInfo("Cloud Filtered size: " << cloud_filtered_->points.size());
-    double pointSize = 10.0;
+    double pointSize = 4.0;
     double pointSize2 = pointSize / 4.0;
     for(int i = 0; i < line_inliers_.size(); ++i)
     {
@@ -289,12 +289,15 @@ public:
     }
 
     int idx = 0;
-
+    visualizer.removeAllShapes();
     for(auto line : lines_)
     {
       std::stringstream lineName;
       lineName << "line_" << idx++;
       visualizer.addLine(line.pt_begin, line.pt_end, lineName.str());
+      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH,4.0,lineName.str());
+      visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR,1.0,0.0,0.0,lineName.str());
+
     }
 
     if(firstRun)
