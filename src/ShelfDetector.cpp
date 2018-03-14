@@ -117,7 +117,7 @@ public:
           line.pt_begin = this->cloud_filtered_->points[n];
         }
 
-        if(this->cloud_filtered_->points[n].x > line.pt_begin.x)
+        if(this->cloud_filtered_->points[n].x > line.pt_end.x)
         {
           line.pt_end = this->cloud_filtered_->points[n];
         }
@@ -219,7 +219,7 @@ public:
     oed.compute(labels, label_indices_);
     if(label_indices_[0].indices.size() == 0)
     {
-      outWarn("No NaN boundaries found. Existing annotator");
+      outWarn("No NaN boundaries found. Exiting annotator");
       return UIMA_ERR_NONE;
     }
 

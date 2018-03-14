@@ -84,8 +84,6 @@ public:
         {
           engine_.setQuery(req);
           engine_.changeLowLevelPipeline(newPipelineOrder);
-          engine_.setNextPipeline(newPipelineOrder);
-          engine_.applyNextPipeline();
           waitForServiceCall_ = false;
           processing_mutex_.unlock();
           return true;
