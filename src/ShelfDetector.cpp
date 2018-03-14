@@ -27,6 +27,9 @@
 #include <rs/utils/common.h>
 #include <rs/DrawingAnnotator.h>
 
+#include <rapidjson/rapidjson.h>
+#include <rapidjson/document.h>
+
 using namespace uima;
 
 
@@ -159,7 +162,7 @@ public:
       detection.name.set(std::to_string(line.id));
       tf::Stamped<tf::Pose> pose;
       pose.setOrigin(tf::Vector3(line.pt_begin.x, line.pt_begin.y, line.pt_begin.z));
-      pose.setRotation(tf::Quaternion(0,0,0,1));
+      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
       pose.frame_id_ = "map";
       uint64_t ts = scene.timestamp();
       pose.stamp_ = ros::Time().fromNSec(ts);
@@ -307,7 +310,28 @@ public:
     solveLineIds();
     addToCas(tcas);
 
-    //TODO: check the query at every iteration. see if stop was sent; If so reset container;
+    rs::Query query = rs::create<rs::Query>(tcas);
+    if(cas.getFS("QUERY", query))
+    {
+      std::string queryAsString = query.asJson();
+      if(queryAsString != "")
+      {
+        rapidjson::Document doc;
+        doc.Parse(queryAsString.c_str());
+        if(doc.HasMember("scan"))
+        {
+          if(doc["scan"].HasMember("command"))
+          {
+            std::string command = doc["scan"]["command"].GetString();
+            if(command == "stop")
+            {
+              outWarn("Clearing chache of line segments");
+              lines_.clear();
+            }
+          }
+        }
+      }
+    }
     return UIMA_ERR_NONE;
   }
 
