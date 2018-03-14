@@ -1,0 +1,6 @@
+%YAML:1.0
+annotators:
+    - CollectionReader
+    - ImagePreprocessor
+    - RegionFilter
+    - NormalEstimator
