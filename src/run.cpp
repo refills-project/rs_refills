@@ -82,7 +82,10 @@ public:
         std::string  command = val["command"].GetString();
         if(command == "start")
         {
+          engine_.setQuery(req);
           engine_.changeLowLevelPipeline(newPipelineOrder);
+          engine_.setNextPipeline(newPipelineOrder);
+          engine_.applyNextPipeline();
           waitForServiceCall_ = false;
           processing_mutex_.unlock();
           return true;
@@ -90,7 +93,7 @@ public:
         else if(command == "stop")
         {
           waitForServiceCall_ = true;
-          engine_.process(newPipelineOrder, true, res);
+          engine_.process(newPipelineOrder, true, res, req);
           processing_mutex_.unlock();
           return true;
         }

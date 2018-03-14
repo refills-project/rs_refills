@@ -1,8 +1,10 @@
 %YAML:1.0
 names:
+   - shelf_system_0
    - shelf_system_1
    - shelf_system_2
-shelf_system_1:
+   - shelf_system_3
+shelf_system_0:
    type: ShelfSystem
    width: 0.50
    height: 2.0 
@@ -14,7 +16,7 @@ shelf_system_1:
       data: [ 1., 0., 0., -0.5, 0., 1., 0.,
           0.25, 0., 0., 1., 1.0, 0.,
           0., 0., 1. ]
-shelf_system_2:
+shelf_system_1:
    type: ShelfSystem
    width: 0.50
    height: 2.0 
@@ -24,5 +26,29 @@ shelf_system_2:
       cols: 4
       dt: d
       data: [ 1., 0., 0., -1.5, 0., 1., 0.,
+          0.25, 0., 0., 1., 1.0, 0.,
+          0., 0., 1. ]
+shelf_system_2:
+   type: ShelfSystem
+   width: 0.50
+   height: 2.0 
+   depth: 1.0 
+   transform: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [ 1., 0., 0., -2.5, 0., 1., 0.,
+          0.25, 0., 0., 1., 1.0, 0.,
+          0., 0., 1. ]
+shelf_system_3:
+   type: ShelfSystem
+   width: 0.50
+   height: 2.0 
+   depth: 1.0 
+   transform: !!opencv-matrix
+      rows: 4
+      cols: 4
+      dt: d
+      data: [ 1., 0., 0., -3.5, 0., 1., 0.,
           0.25, 0., 0., 1., 1.0, 0.,
           0., 0., 1. ]
