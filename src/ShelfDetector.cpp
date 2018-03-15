@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include <tf_conversions/tf_eigen.h>
+#include <tf/transform_listener.h>
 
 #include <pcl/point_types.h>
 
@@ -32,7 +33,16 @@
 
 using namespace uima;
 
-
+/**
+ * @brief The ShelfDetector Annotator
+ *  Detects shelves in a supermarket: assumes a localized robot and a point cloud
+ *  that has been filtered to contain points only from the current shelf meter.
+ *  paramterest to tweak:
+ *   - distance between two lines
+ *   - variance on y of a line
+ *   - number of inliers in a line needs be failry big (depends on voxelizaiton param)
+ *   - max height of a shelf_system can be 1.85
+ */
 class ShelfDetector : public DrawingAnnotator
 {
 
@@ -56,6 +66,8 @@ class ShelfDetector : public DrawingAnnotator
   };
 
   std::vector<Line> lines_;
+
+  cv::Mat mask_, rgb_, disp_;
 
 public:
 
@@ -125,8 +137,9 @@ public:
       bool found = false;
       for(auto &l : lines_)
       {
-        double dist = rs::common::pointToPointDistanceSqrt(l.pt_begin.x, l.pt_begin.y, l.pt_begin.z, line.pt_begin.x, line.pt_begin.y, line.pt_begin.z);
-        if(dist < 0.06)
+        double distb = rs::common::pointToPointDistance2DSqrt(l.pt_begin.y, l.pt_begin.z,  line.pt_begin.y, line.pt_begin.z);
+        double diste = rs::common::pointToPointDistance2DSqrt(l.pt_end.y, l.pt_end.z,  line.pt_end.y, line.pt_end.z);
+        if(distb < 0.1 && diste < 0.1)
         {
           found = true;
           l.pt_begin.x = (l.pt_begin.x + line.pt_begin.x) / 2;
@@ -141,7 +154,7 @@ public:
         }
       }
 
-      if(!found)
+      if(!found && line.pt_begin.z < 1.85)
       {
         line.id = lines_.size();
         lines_.push_back(line);
@@ -176,6 +189,48 @@ public:
       scene.identifiables.append(hyp);
     }
   }
+  void makeMaskedImage()
+  {
+    mask_ = rgb_.clone();
+    for(int i = 0; i < cloud_->points.size(); ++i)
+    {
+      if(!pcl::isFinite(cloud_->points[i]))
+      {
+        cv::Vec3f color(0, 0, 0);
+        //            disp.at<cv::Vec3b>(index) =
+        mask_.at<cv::Vec3b>(i) = color;
+      }
+    }
+  }
+
+  void findLines()
+  {
+    cv::Mat blurred, grey, edge, dilatedCanny;
+    cv::cvtColor(mask_, grey, cv::COLOR_BGR2GRAY);
+
+    cv::threshold(grey, grey, 120, 255, cv::THRESH_BINARY_INV);
+    cv::medianBlur(grey, blurred, 5);
+    cv::Canny(blurred, edge, 50, 150);
+    cv::Mat element = getStructuringElement(cv::MORPH_CROSS,
+                                            cv::Size(3, 3),
+                                            cv::Point(2, 2));
+    cv::dilate(edge, dilatedCanny, element);
+
+
+    disp_ = dilatedCanny.clone();
+
+    std::vector<cv::Vec4i> linesP; // will hold the results of the detection
+    cv::HoughLinesP(dilatedCanny, linesP, 1, CV_PI / 180, 50, 400, 15); // runs the actual detection
+    // Draw the lines
+    for(size_t i = 0; i < linesP.size(); i++)
+    {
+      cv::Vec4i l = linesP[i];
+      cv::line(rgb_, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+    }
+
+  }
+
+
 
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
@@ -188,9 +243,15 @@ public:
     rs::SceneCas cas(tcas);
     cas.get(VIEW_CLOUD, *cloud_);
     cas.get(VIEW_NORMALS, *normals_);
+    cas.get(VIEW_COLOR_IMAGE, rgb_);
+
     rs::Scene scene = cas.getScene();
-    tf::StampedTransform camToWorld, worldToCam;
+    tf::StampedTransform camToWorld;
     rs::conversion::from(scene.viewPoint.get(), camToWorld);
+
+    makeMaskedImage();
+
+    findLines();
 
     Eigen::Affine3d eigenTransform;
     tf::transformTFToEigen(camToWorld, eigenTransform);
@@ -244,7 +305,8 @@ public:
 
     //TODO what should be a stop criteria here?
     int count = 0;
-    while(count++ < 5)
+    int remaining_points = edge_cloud->size();
+    while(count++ < 5 && remaining_points > 0)
     {
 
       //lines parallel to the X-AXES (THIS CAN CHANGE)
@@ -252,10 +314,12 @@ public:
       model_pl(new pcl::SampleConsensusModelParallelLine<pcl::PointXYZRGBA> (edge_cloud));
       model_pl->setAxis(Eigen::Vector3f(1.0, 0, 0));
 
+      outInfo("edge_cloud.size: " << edge_cloud->size());
       pcl::search::Search<pcl::PointXYZRGBA>::Ptr search(new pcl::search::KdTree<pcl::PointXYZRGBA>);
       search->setInputCloud(edge_cloud);
+      outInfo("kdTree created");
       model_pl->setSamplesMaxDist(0.07, search);
-      model_pl->setEpsAngle(2 * M_PI / 180);
+      model_pl->setEpsAngle(1.5 * M_PI / 180);
 
       pcl::RandomSampleConsensus<pcl::PointXYZRGBA> ransac(model_pl);
       ransac.setDistanceThreshold(0.01);
@@ -302,6 +366,7 @@ public:
       ei.setNegative(true);
       ei.setKeepOrganized(true);
       ei.filterDirectly(edge_cloud);
+      remaining_points -= inliers->indices.size();
     }
 
     outInfo("Cloud size: " << cloud_->points.size());
@@ -335,6 +400,11 @@ public:
     return UIMA_ERR_NONE;
   }
 
+
+  void drawImageWithLock(cv::Mat &disp)
+  {
+    disp = rgb_.clone();
+  }
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
   {
     const std::string &cloudname = "cloud";
