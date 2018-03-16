@@ -67,11 +67,20 @@ class ShelfDetector : public DrawingAnnotator
 
   std::vector<Line> lines_;
 
-  cv::Mat mask_, rgb_, disp_;
+  cv::Mat mask_, rgb_, disp_, bin_,grey_;
+
+  //visualization stuff
+  enum class DisplayMode
+  {
+    COLOR,
+    EDGE,
+    BINARY,
+      GREY
+  } dispMode;
 
 public:
 
-  ShelfDetector(): DrawingAnnotator(__func__), min_line_inliers_(50), max_variance_(0.01)
+  ShelfDetector(): DrawingAnnotator(__func__), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::EDGE)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_filtered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -205,12 +214,11 @@ public:
 
   void findLines()
   {
-    cv::Mat blurred, grey, edge, dilatedCanny;
-    cv::cvtColor(mask_, grey, cv::COLOR_BGR2GRAY);
+    cv::Mat edge, dilatedCanny;
+    cv::cvtColor(mask_, grey_, cv::COLOR_BGR2GRAY);
 
-    cv::threshold(grey, grey, 120, 255, cv::THRESH_BINARY_INV);
-    cv::medianBlur(grey, blurred, 5);
-    cv::Canny(blurred, edge, 50, 150);
+    cv::threshold(grey_, bin_, 150, 255, cv::THRESH_BINARY);
+    cv::Canny(bin_, edge, 50, 150);
     cv::Mat element = getStructuringElement(cv::MORPH_CROSS,
                                             cv::Size(3, 3),
                                             cv::Point(2, 2));
@@ -228,6 +236,27 @@ public:
       cv::line(rgb_, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
 
+  }
+
+  bool callbackKey(const int key, const Source source)
+  {
+    switch(key)
+    {
+    case 'c':
+      dispMode = DisplayMode::COLOR;
+      return true;
+    case 'e':
+      dispMode = DisplayMode::EDGE;
+      return true;
+    case 'b':
+      dispMode = DisplayMode::BINARY;
+      return true;
+    case 'g':
+      dispMode = DisplayMode::GREY;
+      return true;
+
+    }
+    return false;
   }
 
 
@@ -252,7 +281,7 @@ public:
     makeMaskedImage();
 
     findLines();
-
+//    return UIMA_ERR_NONE;
     Eigen::Affine3d eigenTransform;
     tf::transformTFToEigen(camToWorld, eigenTransform);
 
@@ -403,12 +432,26 @@ public:
 
   void drawImageWithLock(cv::Mat &disp)
   {
-    disp = rgb_.clone();
+    switch(dispMode)
+    {
+    case DisplayMode::COLOR:
+      disp = rgb_.clone();
+      break;
+    case DisplayMode::EDGE:
+      disp = disp_.clone();
+        break;
+    case DisplayMode::BINARY:
+      disp = bin_.clone();
+        break;
+    case DisplayMode::GREY:
+      disp = grey_.clone();
+        break;
+    }
+
   }
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
   {
     const std::string &cloudname = "cloud";
-    outInfo("Cloud Filtered size: " << cloud_filtered_->points.size());
     double pointSize = 4.0;
     double pointSize2 = pointSize / 4.0;
     for(int i = 0; i < line_inliers_.size(); ++i)
