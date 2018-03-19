@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(rs_refills)
 find_package(catkin REQUIRED robosherlock rs_queryanswering)
+find_package(PCL 1.8 REQUIRED)
 ################################################################################
 ## Constants for project                                                      ##
 ################################################################################
@@ -49,7 +50,7 @@ find_additional_files()
 ################################################################################
 
 rs_add_library(rs_shelfDetector src/ShelfDetector.cpp)
-target_link_libraries(rs_shelfDetector ${catkin_LIBRARIES})
+target_link_libraries(rs_shelfDetector ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 
 rs_add_executable(processing_engine src/run.cpp)
 target_link_libraries(processing_engine ${catkin_LIBRARIES})
