@@ -54,24 +54,34 @@
 class RSRefillsProcessManager: public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait,ros::NodeHandle nh):RSProcessManager(usevis,wait,nh)
+  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh)
   {
 
   }
-  bool handleQuery(std::string& req, std::vector<std::string>& res)
+
+  bool handleQuery(std::string &req, std::vector<std::string> &res)
   {
     outInfo("Handling Query for Refills stuff");
     outInfo("JSON Reuqest: " << req);
     queryInterface->parseQuery(req);
     std::vector<std::string> newPipelineOrder;
     QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
-    if(newPipelineOrder.empty())
+
+    //these are hacks that should be handled by integration of these components in the pipeline planning process
+    if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
       newPipelineOrder.push_back("RegionFilter");
       newPipelineOrder.push_back("NormalEstimator");
       newPipelineOrder.push_back("ShelfDetector");
+    }
+    if(queryType == QueryInterface::QueryType::DETECT)
+    {
+      newPipelineOrder.push_back("CollectionReader");
+      newPipelineOrder.push_back("ImagePreprocessor");
+      newPipelineOrder.push_back("NormalEstimator");
+      newPipelineOrder.push_back("ProductCounter");
     }
     processing_mutex_.lock();
     if(queryType == QueryInterface::QueryType::SCAN)
@@ -96,6 +106,14 @@ public:
           return true;
         }
       }
+    }
+    else if(queryType == QueryInterface::QueryType::DETECT)
+    {
+//       rapidjson::Value &val = queryInterface->query["count"];
+       engine_.setQuery(req);
+       engine_.process(newPipelineOrder, true, res, req);
+       processing_mutex_.unlock();
+       return true;
     }
     else
     {

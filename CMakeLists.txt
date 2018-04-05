@@ -51,5 +51,8 @@ find_additional_files()
 rs_add_library(rs_shelfDetector src/ShelfDetector.cpp)
 target_link_libraries(rs_shelfDetector ${catkin_LIBRARIES})
 
+rs_add_library(rs_productCounter src/ProductCounter.cpp)
+target_link_libraries(rs_productCounter ${catkin_LIBRARIES})
+
 rs_add_executable(processing_engine src/run.cpp)
 target_link_libraries(processing_engine ${catkin_LIBRARIES})

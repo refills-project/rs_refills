@@ -1,0 +1,1 @@
+'{"count":{"type":"ProductWithAN377954","pose":{"x":1.28,"y":-0.57,"z":1.22,"frame":"map"}}}'
