@@ -92,10 +92,10 @@ public:
           if(doc["detect"].HasMember("pose"))
           {
             tf::Vector3 position;
-            position.setX(doc["detect"]["pose"]["x"].GetFloat());
-            position.setY(doc["detect"]["pose"]["y"].GetFloat());
-            position.setZ(doc["detect"]["pose"]["z"].GetFloat());
-            pose.frame_id_ = doc["detect"]["pose"]["frame"].GetString();
+            position.setX(doc["detect"]["pose"]["position"]["x"].GetFloat());
+            position.setY(doc["detect"]["pose"]["position"]["y"].GetFloat());
+            position.setZ(doc["detect"]["pose"]["position"]["z"].GetFloat());
+            pose.frame_id_ = doc["detect"]["pose"]["frame_id"].GetString();
             pose.setOrigin(position);
             pose.setRotation(tf::Quaternion(0, 0, 0, 1));
             pose.stamp_ = ros::Time::now();
@@ -217,6 +217,11 @@ public:
     }
     outInfo("Found " << cluster_i.size() << " good clusters!");
 
+
+    float gminX = std::numeric_limits<float>::max(),
+          gminZ = std::numeric_limits<float>::max(),
+          gmaxX = std::numeric_limits<float>::min(),
+          gmaxZ = std::numeric_limits<float>::min();
     for(int i = 0; i < cluster_i.size(); ++i)
     {
       Eigen::Vector4f  min, max;
@@ -229,6 +234,12 @@ public:
       bb.maxPt.z = max[2];
       bb.minPt.x = min[0];
       bb.minPt.z = min[2];
+
+      if(bb.maxPt.x > gmaxX) gmaxX = bb.maxPt.x;
+      if(bb.maxPt.z > gmaxZ) gmaxZ = bb.maxPt.z;
+      if(bb.minPt.x < gminX) gminX = bb.minPt.x;
+      if(bb.minPt.z < gminZ) gminZ = bb.minPt.z;
+
       if(count <= 1)
       {
         bb.maxPt.y = max[1];
@@ -259,6 +270,15 @@ public:
       }
       outError("THIS: " << count);
     }
+
+    //overwrite all dimensions with biggest BB;
+    for (auto &bb :cluster_boxes)
+    {
+       bb.maxPt.x = gmaxX;
+       bb.maxPt.z = gmaxZ;
+       bb.minPt.x = gminX;
+       bb.minPt.z = gminZ;
+    }
   }
 
   void addToCas(CAS &tcas, std::string objToCount)
@@ -272,18 +292,18 @@ public:
       detection.source.set("ProductCounter");
       detection.name.set(objToCount);
 
-//      tf::Stamped<tf::Pose> pose;
-//      pose.setOrigin(tf::Vector3(cluster_boxes[i].ptMax.x));
-//      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-//      pose.frame_id_ = "map";
+      //      tf::Stamped<tf::Pose> pose;
+      //      pose.setOrigin(tf::Vector3(cluster_boxes[i].ptMax.x));
+      //      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
+      //      pose.frame_id_ = "map";
       uint64_t ts = scene.timestamp();
-//      pose.stamp_ = ros::Time().fromNSec(ts);
-//      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
-//      poseAnnotation.source.set("ShelfDetector");
-//      poseAnnotation.world.set(rs::conversion::to(tcas, pose));
-//      poseAnnotation.camera.set(rs::conversion::to(tcas, pose));
+      //      pose.stamp_ = ros::Time().fromNSec(ts);
+      //      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
+      //      poseAnnotation.source.set("ShelfDetector");
+      //      poseAnnotation.world.set(rs::conversion::to(tcas, pose));
+      //      poseAnnotation.camera.set(rs::conversion::to(tcas, pose));
       hyp.annotations.append(detection);
-//      hyp.annotations.append(poseAnnotation);
+      //      hyp.annotations.append(poseAnnotation);
       scene.identifiables.append(hyp);
     }
   }
@@ -336,6 +356,7 @@ public:
     {
       cloudFiltered_->clear();
       cluster_indices_.clear();
+      cluster_boxes.clear();
       countObject(tcas);
     }
     return UIMA_ERR_NONE;
@@ -360,16 +381,6 @@ public:
   {
     const std::string &cloudname = "cloud";
     double pointSize = 1.0;
-
-    //    for(int j = 0; j < cluster_indices_.size(); ++j)
-    //    {
-    //      for(int i = 0; i < cluster_indices_[j].indices.size(); ++i)
-    //      {
-    //        cloudFiltered_->points[cluster_indices_[j].indices[i]].rgba = rs::common::colors[j%rs::common::numberOfColors];
-    //        cloudFiltered_->points[cluster_indices_[j].indices[i]].a = 255;
-    //      }}
-
-    visualizer.setBackgroundColor(1.0, 1.0, 1.0);
     if(firstRun)
     {
       visualizer.addPointCloud(cloudFiltered_, cloudname);
@@ -379,14 +390,15 @@ public:
     {
       visualizer.updatePointCloud(cloudFiltered_, cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
+      visualizer.removeAllShapes();
     }
     int idx = 0;
 
-    visualizer.removeAllShapes();
+
     for(auto &bb : cluster_boxes)
     {
-      visualizer.addCube(bb.minPt.x, bb.maxPt.x, bb.minPt.y, bb.maxPt.y, bb.minPt.z, bb.maxPt.z, 0.0, 0.0, 0.0,
-                         std::to_string(idx));
+      visualizer.addCube(bb.minPt.x, bb.maxPt.x, bb.minPt.y, bb.maxPt.y, bb.minPt.z, bb.maxPt.z, 1.0, 1.0, 1.0,
+                         "box_" + std::to_string(idx));
       idx++;
     }
     visualizer.setRepresentationToWireframeForAllActors();

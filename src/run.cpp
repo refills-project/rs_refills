@@ -78,6 +78,7 @@ public:
     }
     if(queryType == QueryInterface::QueryType::DETECT)
     {
+      newPipelineOrder.clear();
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
       newPipelineOrder.push_back("NormalEstimator");
