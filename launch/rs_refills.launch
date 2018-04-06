@@ -1,0 +1,12 @@
+<!-- Launch file for running RS locally with web viwualization -->
+<launch>
+
+  <!-- launch refills specific RoboSherlock -->
+  <arg name="wait" default="false" />
+  <node name="RoboSherlock" pkg="rs_refills" type="processing_engine" output="screen">
+    <param name="ae" type="string" value="refills"/>  
+    <param name="vis" type="boolean" value="false"/>  
+  </node>
+
+
+</launch>
