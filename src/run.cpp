@@ -175,7 +175,6 @@ int main(int argc, char *argv[])
   {
     RSRefillsProcessManager manager(useVisualizer, waitForServiceCall, nh);
     manager.setUseIdentityResolution(false);
-    outInfo("");
     manager.setUseJsonPrologInterface(true);
     manager.pause();
     manager.init(analysisEngineFile, configFile);

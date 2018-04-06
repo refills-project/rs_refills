@@ -38,6 +38,7 @@ private:
   tf::StampedTransform camToWorld;
 
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloudFiltered_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr_;
   std::vector<pcl::PointIndices> cluster_indices_;
 
   cv::Mat rgb_;
@@ -53,6 +54,7 @@ public:
   ProductCounter(): DrawingAnnotator(__func__)
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
   }
   TyErrorId initialize(AnnotatorContext &ctx)
   {
@@ -72,7 +74,7 @@ public:
     outWarn("Not yet implemented");
   }
 
-  bool handleQuery(CAS &tcas, std::string &obj, tf::Stamped<tf::Pose> &pose, std::string &shelf_type)
+  bool handleQuery(CAS &tcas, std::string &obj, tf::Stamped<tf::Pose> &pose, std::string &shelf_type, float &distToNextSep)
   {
     rs::SceneCas cas(tcas);
     rs::Query query = rs::create<rs::Query>(tcas);
@@ -85,17 +87,20 @@ public:
         doc.Parse(queryAsString.c_str());
         if(doc.HasMember("detect"))
         {
-          if(doc["detect"].HasMember("type"))
+          rapidjson::Value &dQuery = doc["detect"];
+
+          if(dQuery.HasMember("type"))
           {
-            obj = doc["detect"]["type"].GetString();
+            obj = dQuery["type"].GetString();
           }
-          if(doc["detect"].HasMember("pose"))
+          if(dQuery.HasMember("pose_stamped"))
           {
+
             tf::Vector3 position;
-            position.setX(doc["detect"]["pose_stamped"]["pose"]["position"]["x"].GetFloat());
-            position.setY(doc["detect"]["pose_stamped"]["pose"]["position"]["y"].GetFloat());
-            position.setZ(doc["detect"]["pose_stamped"]["pose"]["position"]["z"].GetFloat());
-            pose.frame_id_ = doc["detect"]["pose_stamped"]["header"]["frame_id"].GetString();
+            position.setX(dQuery["pose_stamped"]["pose"]["position"]["x"].GetFloat());
+            position.setY(dQuery["pose_stamped"]["pose"]["position"]["y"].GetFloat());
+            position.setZ(dQuery["pose_stamped"]["pose"]["position"]["z"].GetFloat());
+            pose.frame_id_ = dQuery["pose_stamped"]["header"]["frame_id"].GetString();
             pose.setOrigin(position);
             pose.setRotation(tf::Quaternion(0, 0, 0, 1));
             pose.stamp_ = ros::Time::now();
@@ -104,11 +109,22 @@ public:
             return false;
           if(doc["detect"].HasMember("shelf_type"))
           {
-             shelf_type = doc["detect"]["shelf_type"].GetString();
+            shelf_type = dQuery["shelf_type"].GetString();
           }
-          else{
-              //for now only two kinds of shelves: hanging and standing
-              shelf_type = "standing";
+          else
+          {
+            //for now only two kinds of shelves: hanging and standing
+            shelf_type = "standing";
+          }
+
+          if(doc["detect"].HasMember("width"))
+          {
+            distToNextSep = dQuery["width"].GetFloat();
+          }
+          else
+          {
+            //for now only two kinds of shelves: hanging and standing
+            distToNextSep = 0.0;
           }
 
         }
@@ -125,11 +141,18 @@ public:
   {
     //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
     std::stringstream plQuery;
-    plQuery << "owl_class_properties(shop:'" << obj << "',shop:depthOfProduct," <<
+    std::stringstream objUri;
+
+    if(obj.find("http://") == std::string::npos)
+      objUri << "shop:'" << obj << "'";
+    else
+      objUri << "'" << obj << "'";
+
+    plQuery << "owl_class_properties(" << objUri.str() << ",shop:depthOfProduct," <<
             "literal(type(_,D_XSD))),atom_number(D_XSD,D),"
-            << "owl_class_properties(shop:'" << obj << "',shop:widthOfProduct," <<
+            << "owl_class_properties(" << objUri.str() << ",shop:widthOfProduct," <<
             "literal(type(_,W_XSD))),atom_number(W_XSD,W),"
-            << "owl_class_properties(shop:'" << obj << "',shop:heightOfProduct," <<
+            << "owl_class_properties(" << objUri.str() << ",shop:heightOfProduct," <<
             "literal(type(_,H_XSD))),atom_number(H_XSD,H),!.";
 
     json_prolog::Prolog pl;
@@ -165,27 +188,27 @@ public:
     float minX, minY, minZ;
     float maxX, maxY, maxZ;
 
-    if(shelf_type = "hanging"){
-
-        maxZ = poseStamped.getOrigin().z()*0.99;
-        minZ = poseStamped.getOrigin().z()- depth * 0.95;
-
-        minX = poseStamped.getOrigin().x() - width/2;
-        maxX = poseStamped.getOrigin().x() + width/2;
-
-        minY = poseStamped.getOrigin().y();
-        maxY = poseStamped.getOrigin().y()+0.3;
-    }
-    else if(shelf_type = "standing")
+    if(shelf_type == "hanging")
     {
-        minX = poseStamped.getOrigin().x() *1.02;
-        maxX = poseStamped.getOrigin().x() + width;
+      minX = poseStamped.getOrigin().x() - width / 2;
+      maxX = poseStamped.getOrigin().x() + width / 2;
 
-        minY = poseStamped.getOrigin().y();
-        maxY = poseStamped.getOrigin().y() +0.4;//this can vary between 0.3 and 0.5;
+      minY = poseStamped.getOrigin().y();
+      maxY = poseStamped.getOrigin().y() + 0.3;
 
-        minZ = poseStamped.getOrigin().z() * 1.01;
-        maxZ = poseStamped.getOrigin().z() + depth * 1.05;
+      maxZ = poseStamped.getOrigin().z() * 0.99;
+      minZ = poseStamped.getOrigin().z() - depth * 0.95;
+    }
+    else if(shelf_type == "standing")
+    {
+      minX = poseStamped.getOrigin().x() * 1.03;
+      maxX = poseStamped.getOrigin().x() * 1.03 + width;
+
+      minY = poseStamped.getOrigin().y();
+      maxY = poseStamped.getOrigin().y() + 0.4; //this can vary between 0.3 and 0.5;
+
+      minZ = poseStamped.getOrigin().z() * 1.05;
+      maxZ = poseStamped.getOrigin().z() + depth * 1.05;
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -204,12 +227,12 @@ public:
     pass.setFilterLimits(minZ, maxZ);
     pass.filter(*cloudFiltered_);
 
-//    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
-//    sor.setInputCloud(cloudFiltered_);
-//    sor.setMeanK(25);
-//    sor.setStddevMulThresh(3.0);
-//    sor.setKeepOrganized(true);
-//    sor.filter(*cloudFiltered_);
+    //    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
+    //    sor.setInputCloud(cloudFiltered_);
+    //    sor.setMeanK(25);
+    //    sor.setStddevMulThresh(3.0);
+    //    sor.setKeepOrganized(true);
+    //    sor.filter(*cloudFiltered_);
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
@@ -251,7 +274,6 @@ public:
         ++it;
     }
     outInfo("Found " << cluster_i.size() << " good clusters!");
-
 
     float gminX = std::numeric_limits<float>::max(),
           gminZ = std::numeric_limits<float>::max(),
@@ -307,12 +329,12 @@ public:
     }
 
     //overwrite all dimensions with biggest BB;
-    for (auto &bb :cluster_boxes)
+    for(auto &bb : cluster_boxes)
     {
-       bb.maxPt.x = gmaxX;
-       bb.maxPt.z = gmaxZ;
-       bb.minPt.x = gminX;
-       bb.minPt.z = gminZ;
+      bb.maxPt.x = gmaxX;
+      bb.maxPt.z = gmaxZ;
+      bb.minPt.x = gminX;
+      bb.minPt.z = gminZ;
     }
   }
 
@@ -331,7 +353,7 @@ public:
       //      pose.setOrigin(tf::Vector3(cluster_boxes[i].ptMax.x));
       //      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
       //      pose.frame_id_ = "map";
-      uint64_t ts = scene.timestamp();
+      //      uint64_t ts = scene.timestamp();
       //      pose.stamp_ = ros::Time().fromNSec(ts);
       //      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       //      poseAnnotation.source.set("ShelfDetector");
@@ -348,17 +370,19 @@ public:
     rs::SceneCas cas(tcas);
 
     std::string objToScan = "" ;
+    std::string shelfType = "";
+    float distToNextSep = 0.0f;
     tf::Stamped<tf::Pose> poseStamped;
-    if(!handleQuery(tcas, objToScan, poseStamped)) return false;
+    if(!handleQuery(tcas, objToScan, poseStamped, shelfType, distToNextSep)) return false;
     outInfo("Obj To Scan is: " << objToScan);
     outInfo("Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
-    double height, width, depth;
-    if(!getObjectDims(objToScan, height, width, depth)) return false;
+    double height = 0.0, width = 0.0, depth = 0.0;
+    getObjectDims(objToScan, height, width, depth);
     outInfo("height = " << height << " width = " << width << " depth  = " << depth);
 
-    pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr(new pcl::PointCloud<pcl::PointXYZRGBA>);
+
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-    cas.get(VIEW_CLOUD, *cloud_ptr);
+    cas.get(VIEW_CLOUD, *cloud_ptr_);
     cas.get(VIEW_NORMALS, *cloud_normals);
     cas.get(VIEW_COLOR_IMAGE, rgb_);
     rs::Scene scene = cas.getScene();
@@ -368,11 +392,22 @@ public:
 
     Eigen::Affine3d eigenTransform;
     tf::transformTFToEigen(camToWorld, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr, *cloudFiltered_, eigenTransform);
+    //        pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloud_ptr_, eigenTransform);
+    *cloudFiltered_ = *cloud_ptr_;
 
     //0.4 is shelf_depth
-    filterCloud(poseStamped, width, 0.4, depth);
+    if(width != 0.0 && depth != 0.0)
+      filterCloud(poseStamped, width, depth, shelfType); //height  (which imo is depth of a shelf is given by the shelf_type)
+    else if(distToNextSep != 0.0)
+    {
+      ///0.22 m is the biggest height of object we consider if there is no info
+      filterCloud(poseStamped, distToNextSep, 0.22, shelfType);
+    }
+    else
+      return false;
     //cluster the filtered cloud and split clusters in chunks of height (on y axes)
+
     clusterCloud(height, cloud_normals);
     addToCas(tcas, objToScan);
     return true;
@@ -418,12 +453,12 @@ public:
     double pointSize = 1.0;
     if(firstRun)
     {
-      visualizer.addPointCloud(cloudFiltered_, cloudname);
+      visualizer.addPointCloud(cloud_ptr_, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
     }
     else
     {
-      visualizer.updatePointCloud(cloudFiltered_, cloudname);
+      visualizer.updatePointCloud(cloud_ptr_,  cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
       visualizer.removeAllShapes();
     }
