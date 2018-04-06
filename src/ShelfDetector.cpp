@@ -58,6 +58,8 @@ class ShelfDetector : public DrawingAnnotator
   int min_line_inliers_;
   float max_variance_;
 
+   tf::StampedTransform camToWorld_;
+
   struct Line
   {
     pcl::PointXYZRGBA pt_begin;
@@ -260,6 +262,124 @@ public:
   }
 
 
+  bool findLinesInCloud()
+  {
+      Eigen::Affine3d eigenTransform;
+      tf::transformTFToEigen(camToWorld_, eigenTransform);
+
+      //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *edge_cloud, eigenTransform);
+      //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
+      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+
+
+      pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
+      sor.setInputCloud(cloud_);
+      sor.setKeepOrganized(true);
+      sor.setMeanK(100);
+      sor.setStddevMulThresh(0.05);
+      sor.filter(*cloud_filtered_);
+
+      pcl::OrganizedEdgeFromNormals<pcl::PointXYZRGBA, pcl::Normal, pcl::Label> oed;
+      oed.setInputNormals(normals_);
+      oed.setInputCloud(cloud_filtered_);
+      oed.setDepthDisconThreshold(0.05);
+      oed.setMaxSearchNeighbors(0.03);
+      oed.setEdgeType(oed.EDGELABEL_NAN_BOUNDARY);
+      pcl::PointCloud<pcl::Label> labels;
+
+      oed.compute(labels, label_indices_);
+      if(label_indices_[0].indices.size() == 0)
+      {
+        outWarn("No NaN boundaries found. Exiting annotator");
+        return false;
+      }
+
+      pcl::ExtractIndices<pcl::PointXYZRGBA> ei;
+      outInfo("Before filter: " << cloud_filtered_->points.size());
+      ei.setInputCloud(cloud_filtered_);
+      //this is the bullshit of PCL...one algo returns PointIndices next algo want a f'in pointer
+      ei.setIndices(boost::make_shared<pcl::PointIndices>(label_indices_[0]));
+      ei.setKeepOrganized(true);
+      ei.filterDirectly(cloud_filtered_);
+
+      pcl::VoxelGrid<pcl::PointXYZRGBA> vg;
+      vg.setInputCloud(cloud_filtered_);
+      vg.setLeafSize(0.02, 0.02, 0.02);
+      vg.filter(*cloud_filtered_);
+
+      //    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
+      pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud = cloud_filtered_->makeShared();
+
+      std::vector<float> xz_plane{0.0, 1.0, 0.0, 0.5};
+      projectPointCloudOnPlane(edge_cloud, xz_plane);
+
+      //TODO what should be a stop criteria here?
+      int count = 0;
+      int remaining_points = edge_cloud->size();
+      while(count++ < 5 && remaining_points > 0)
+      {
+
+        //lines parallel to the X-AXES (THIS CAN CHANGE)
+        pcl::SampleConsensusModelParallelLine<pcl::PointXYZRGBA>::Ptr
+        model_pl(new pcl::SampleConsensusModelParallelLine<pcl::PointXYZRGBA> (edge_cloud));
+        model_pl->setAxis(Eigen::Vector3f(1.0, 0, 0));
+
+        outInfo("edge_cloud.size: " << edge_cloud->size());
+        pcl::search::Search<pcl::PointXYZRGBA>::Ptr search(new pcl::search::KdTree<pcl::PointXYZRGBA>);
+        search->setInputCloud(edge_cloud);
+        outInfo("kdTree created");
+        model_pl->setSamplesMaxDist(0.07, search);
+        model_pl->setEpsAngle(1.5 * M_PI / 180);
+
+        pcl::RandomSampleConsensus<pcl::PointXYZRGBA> ransac(model_pl);
+        ransac.setDistanceThreshold(0.01);
+
+        ransac.computeModel();
+        pcl::PointIndicesPtr inliers(new pcl::PointIndices());
+        ransac.getInliers(inliers->indices);
+
+        float avg_y = 0;
+        std::for_each(inliers->indices.begin(), inliers->indices.end(), [&avg_y, this](int n)
+        {
+          avg_y += this->cloud_filtered_->points[n].y;
+        }
+                     );
+        avg_y = avg_y / inliers->indices.size();
+        float ssd = 0;
+        std::for_each(inliers->indices.begin(), inliers->indices.end(), [avg_y, &ssd, this](int n)
+        {
+          ssd += (this->cloud_filtered_->points[n].y - avg_y) * (this->cloud_filtered_->points[n].y - avg_y);
+        }
+                     );
+
+        float var = std::sqrt(ssd / (inliers->indices.size()));
+
+
+        //the variance on y needs to be small
+        if(inliers->indices.size() > min_line_inliers_ && var < max_variance_)
+        {
+          outInfo("variance is : " << var);
+          outInfo("Line inliers found: " << inliers->indices.size());
+          Eigen::VectorXf model_coeffs;
+          ransac.getModelCoefficients(model_coeffs);
+          outInfo("x = " << model_coeffs[0] << " y = " << model_coeffs[1] << " z = " << model_coeffs[2]);
+          line_models_.push_back(model_coeffs);
+          line_inliers_.push_back(inliers);
+        }
+        else
+        {
+          outWarn("variance was: " << var);
+          outWarn("inliers was:  " << inliers->indices.size());
+        }
+        ei.setInputCloud(edge_cloud);
+        ei.setIndices(inliers);
+        ei.setNegative(true);
+        ei.setKeepOrganized(true);
+        ei.filterDirectly(edge_cloud);
+        remaining_points -= inliers->indices.size();
+      }
+      return true;
+  }
 
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
@@ -275,131 +395,18 @@ public:
     cas.get(VIEW_COLOR_IMAGE, rgb_);
 
     rs::Scene scene = cas.getScene();
-    tf::StampedTransform camToWorld;
-    rs::conversion::from(scene.viewPoint.get(), camToWorld);
+
+    rs::conversion::from(scene.viewPoint.get(), camToWorld_);
 
     makeMaskedImage();
 
     findLines();
 //    return UIMA_ERR_NONE;
-    Eigen::Affine3d eigenTransform;
-    tf::transformTFToEigen(camToWorld, eigenTransform);
 
-    //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *edge_cloud, eigenTransform);
-    //    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_filtered_, *cloud_filtered_, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
-
-
-    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
-
-    sor.setInputCloud(cloud_);
-    sor.setKeepOrganized(true);
-    sor.setMeanK(100);
-    sor.setStddevMulThresh(0.05);
-    sor.filter(*cloud_filtered_);
-
-    pcl::OrganizedEdgeFromNormals<pcl::PointXYZRGBA, pcl::Normal, pcl::Label> oed;
-    oed.setInputNormals(normals_);
-    oed.setInputCloud(cloud_filtered_);
-    oed.setDepthDisconThreshold(0.05);
-    oed.setMaxSearchNeighbors(0.03);
-    oed.setEdgeType(oed.EDGELABEL_NAN_BOUNDARY);
-    pcl::PointCloud<pcl::Label> labels;
-
-    oed.compute(labels, label_indices_);
-    if(label_indices_[0].indices.size() == 0)
-    {
-      outWarn("No NaN boundaries found. Exiting annotator");
-      return UIMA_ERR_NONE;
-    }
-
-    pcl::ExtractIndices<pcl::PointXYZRGBA> ei;
-    outInfo("Before filter: " << cloud_filtered_->points.size());
-    ei.setInputCloud(cloud_filtered_);
-    //this is the bullshit of PCL...one algo returns PointIndices next algo want a f'in pointer
-    ei.setIndices(boost::make_shared<pcl::PointIndices>(label_indices_[0]));
-    ei.setKeepOrganized(true);
-    ei.filterDirectly(cloud_filtered_);
-
-    pcl::VoxelGrid<pcl::PointXYZRGBA> vg;
-    vg.setInputCloud(cloud_filtered_);
-    vg.setLeafSize(0.02, 0.02, 0.02);
-    vg.filter(*cloud_filtered_);
-
-    //    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
-    pcl::PointCloud <pcl::PointXYZRGBA>::Ptr edge_cloud = cloud_filtered_->makeShared();
-
-    std::vector<float> xz_plane{0.0, 1.0, 0.0, 0.5};
-    projectPointCloudOnPlane(edge_cloud, xz_plane);
-
-    //TODO what should be a stop criteria here?
-    int count = 0;
-    int remaining_points = edge_cloud->size();
-    while(count++ < 5 && remaining_points > 0)
-    {
-
-      //lines parallel to the X-AXES (THIS CAN CHANGE)
-      pcl::SampleConsensusModelParallelLine<pcl::PointXYZRGBA>::Ptr
-      model_pl(new pcl::SampleConsensusModelParallelLine<pcl::PointXYZRGBA> (edge_cloud));
-      model_pl->setAxis(Eigen::Vector3f(1.0, 0, 0));
-
-      outInfo("edge_cloud.size: " << edge_cloud->size());
-      pcl::search::Search<pcl::PointXYZRGBA>::Ptr search(new pcl::search::KdTree<pcl::PointXYZRGBA>);
-      search->setInputCloud(edge_cloud);
-      outInfo("kdTree created");
-      model_pl->setSamplesMaxDist(0.07, search);
-      model_pl->setEpsAngle(1.5 * M_PI / 180);
-
-      pcl::RandomSampleConsensus<pcl::PointXYZRGBA> ransac(model_pl);
-      ransac.setDistanceThreshold(0.01);
-
-      ransac.computeModel();
-      pcl::PointIndicesPtr inliers(new pcl::PointIndices());
-      ransac.getInliers(inliers->indices);
-
-      float avg_y = 0;
-      std::for_each(inliers->indices.begin(), inliers->indices.end(), [&avg_y, this](int n)
-      {
-        avg_y += this->cloud_filtered_->points[n].y;
-      }
-                   );
-      avg_y = avg_y / inliers->indices.size();
-      float ssd = 0;
-      std::for_each(inliers->indices.begin(), inliers->indices.end(), [avg_y, &ssd, this](int n)
-      {
-        ssd += (this->cloud_filtered_->points[n].y - avg_y) * (this->cloud_filtered_->points[n].y - avg_y);
-      }
-                   );
-
-      float var = std::sqrt(ssd / (inliers->indices.size()));
-
-
-      //the variance on y needs to be small
-      if(inliers->indices.size() > min_line_inliers_ && var < max_variance_)
-      {
-        outInfo("variance is : " << var);
-        outInfo("Line inliers found: " << inliers->indices.size());
-        Eigen::VectorXf model_coeffs;
-        ransac.getModelCoefficients(model_coeffs);
-        outInfo("x = " << model_coeffs[0] << " y = " << model_coeffs[1] << " z = " << model_coeffs[2]);
-        line_models_.push_back(model_coeffs);
-        line_inliers_.push_back(inliers);
-      }
-      else
-      {
-        outWarn("variance was: " << var);
-        outWarn("inliers was:  " << inliers->indices.size());
-      }
-      ei.setInputCloud(edge_cloud);
-      ei.setIndices(inliers);
-      ei.setNegative(true);
-      ei.setKeepOrganized(true);
-      ei.filterDirectly(edge_cloud);
-      remaining_points -= inliers->indices.size();
-    }
 
     outInfo("Cloud size: " << cloud_->points.size());
     outInfo("took: " << clock.getTime() << " ms.");
+    findLinesInCloud();
 
     solveLineIds();
     addToCas(tcas);
