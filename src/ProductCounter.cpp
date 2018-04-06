@@ -72,7 +72,7 @@ public:
     outWarn("Not yet implemented");
   }
 
-  bool handleQuery(CAS &tcas, std::string &obj, tf::Stamped<tf::Pose> &pose)
+  bool handleQuery(CAS &tcas, std::string &obj, tf::Stamped<tf::Pose> &pose, std::string &shelf_type)
   {
     rs::SceneCas cas(tcas);
     rs::Query query = rs::create<rs::Query>(tcas);
@@ -92,16 +92,25 @@ public:
           if(doc["detect"].HasMember("pose"))
           {
             tf::Vector3 position;
-            position.setX(doc["detect"]["pose"]["position"]["x"].GetFloat());
-            position.setY(doc["detect"]["pose"]["position"]["y"].GetFloat());
-            position.setZ(doc["detect"]["pose"]["position"]["z"].GetFloat());
-            pose.frame_id_ = doc["detect"]["pose"]["frame_id"].GetString();
+            position.setX(doc["detect"]["pose_stamped"]["pose"]["position"]["x"].GetFloat());
+            position.setY(doc["detect"]["pose_stamped"]["pose"]["position"]["y"].GetFloat());
+            position.setZ(doc["detect"]["pose_stamped"]["pose"]["position"]["z"].GetFloat());
+            pose.frame_id_ = doc["detect"]["pose_stamped"]["header"]["frame_id"].GetString();
             pose.setOrigin(position);
             pose.setRotation(tf::Quaternion(0, 0, 0, 1));
             pose.stamp_ = ros::Time::now();
           }
           else
             return false;
+          if(doc["detect"].HasMember("shelf_type"))
+          {
+             shelf_type = doc["detect"]["shelf_type"].GetString();
+          }
+          else{
+              //for now only two kinds of shelves: hanging and standing
+              shelf_type = "standing";
+          }
+
         }
         else
           return false;
@@ -150,31 +159,57 @@ public:
   }
 
   void filterCloud(const tf::Stamped<tf::Pose> &poseStamped,
-                   const double &width, const double &height, const double &depth)
+                   const double &width, const double &depth, std::string shelf_type)
   {
     pcl::PassThrough<pcl::PointXYZRGBA> pass;
+    float minX, minY, minZ;
+    float maxX, maxY, maxZ;
+
+    if(shelf_type = "hanging"){
+
+        maxZ = poseStamped.getOrigin().z()*0.99;
+        minZ = poseStamped.getOrigin().z()- depth * 0.95;
+
+        minX = poseStamped.getOrigin().x() - width/2;
+        maxX = poseStamped.getOrigin().x() + width/2;
+
+        minY = poseStamped.getOrigin().y();
+        maxY = poseStamped.getOrigin().y()+0.3;
+    }
+    else if(shelf_type = "standing")
+    {
+        minX = poseStamped.getOrigin().x() *1.02;
+        maxX = poseStamped.getOrigin().x() + width;
+
+        minY = poseStamped.getOrigin().y();
+        maxY = poseStamped.getOrigin().y() +0.4;//this can vary between 0.3 and 0.5;
+
+        minZ = poseStamped.getOrigin().z() * 1.01;
+        maxZ = poseStamped.getOrigin().z() + depth * 1.05;
+    }
+
     pass.setInputCloud(cloudFiltered_);
     pass.setKeepOrganized(true);
     pass.setFilterFieldName("x");// widht of facing
-    pass.setFilterLimits(poseStamped.getOrigin().x() * 1.02, poseStamped.getOrigin().x() + width);
+    pass.setFilterLimits(minX, maxX);
     pass.filter(*cloudFiltered_);
 
     pass.setInputCloud(cloudFiltered_);
     pass.setFilterFieldName("y");//
-    pass.setFilterLimits(poseStamped.getOrigin().y(), poseStamped.getOrigin().y() + 0.4); //full depth of four layered shelf
+    pass.setFilterLimits(minY, maxY);
     pass.filter(*cloudFiltered_);
 
     pass.setInputCloud(cloudFiltered_);
     pass.setFilterFieldName("z");//
-    pass.setFilterLimits(poseStamped.getOrigin().z() * 1.01, poseStamped.getOrigin().z() + depth * 1.05);
+    pass.setFilterLimits(minZ, maxZ);
     pass.filter(*cloudFiltered_);
 
-    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
-    sor.setInputCloud(cloudFiltered_);
-    sor.setMeanK(25);
-    sor.setStddevMulThresh(2.5);
-    sor.setKeepOrganized(true);
-    sor.filter(*cloudFiltered_);
+//    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
+//    sor.setInputCloud(cloudFiltered_);
+//    sor.setMeanK(25);
+//    sor.setStddevMulThresh(3.0);
+//    sor.setKeepOrganized(true);
+//    sor.filter(*cloudFiltered_);
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
@@ -210,7 +245,7 @@ public:
     for(std::vector<pcl::PointIndices>::iterator it = cluster_i.begin();
         it != cluster_i.end();)
     {
-      if(it->indices.size() < 500)
+      if(it->indices.size() < 300)
         it = cluster_i.erase(it);
       else
         ++it;
@@ -335,8 +370,8 @@ public:
     tf::transformTFToEigen(camToWorld, eigenTransform);
     pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr, *cloudFiltered_, eigenTransform);
 
-    filterCloud(poseStamped, width, height, depth);
-
+    //0.4 is shelf_depth
+    filterCloud(poseStamped, width, 0.4, depth);
     //cluster the filtered cloud and split clusters in chunks of height (on y axes)
     clusterCloud(height, cloud_normals);
     addToCas(tcas, objToScan);

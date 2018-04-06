@@ -103,6 +103,9 @@
     <delegateAnalysisEngine key="PrimitiveShapeAnnotator">
       <import location="../../../../../rs_ws/src/robosherlock/descriptors/annotators/annotation/PrimitiveShapeAnnotator.xml"/>
     </delegateAnalysisEngine>
+    <delegateAnalysisEngine key="ProductCounter">
+      <import location="../annotators/ProductCounter.xml"/>
+    </delegateAnalysisEngine>
     <delegateAnalysisEngine key="RegionFilter">
       <import location="../../../../../rs_ws/src/robosherlock/descriptors/annotators/filter/RegionFilter.xml"/>
     </delegateAnalysisEngine>
@@ -170,8 +173,8 @@
         <name>camera_config_files</name>
         <value>
           <array>
-            <string>config_realsense_donbot.ini</string>
-          <!--  <string>config_refills_mongo.ini</string>-->
+         <string>config_realsense_donbot.ini</string>
+<!--            <string>config_refills_mongo.ini</string>-->
           </array>
         </value>
       </nameValuePair>
@@ -180,7 +183,8 @@
         <name>defaultRegions</name>
         <value>
         <array>
-          <string>shelf_system_1</string>
+          <string>shelf_system_0</string>
+<!--          <string>shelf_system_1</string>-->
 <!--          <string>shelf_system_2</string>-->
         </array>
         </value>
@@ -197,6 +201,7 @@
        <node>RegionFilter</node>
        <node>NormalEstimator</node>
        <node>ShelfDetector</node>
+       <node>ProductCounter</node>
       </fixedFlow>
     </flowConstraints>
     <typePriorities/>
