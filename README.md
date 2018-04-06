@@ -84,13 +84,15 @@ Returns a vector of object descritions. Each object description is a json string
 Count an object
 ```json
     {"detect":{
-         "type":"ProductWithAN046088",
+         "type":"ProductWithAN046088",//product class name as defined in KR 
          "pose_stamped":{
-                     "header":{"frame_id":"map"},
+                     "header":{"frame_id":"some_tf_frame"},
                      "pose"  :{"position":{"x":0.65,"y":-0.57,"z":0.58}
                     }
-            },
-         "shelf_type":"standing"   
+            }, //this is the position of the left separator
+         "shelf_type":"standing", // standing or hanging
+         "width":0.23 //width of facing
+         "location":"tf_frame_of_shelf_meter"
      }
 ```
   
