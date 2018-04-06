@@ -167,6 +167,17 @@
           <parameter>RegionFilter/defaultRegions</parameter>
         </overrides>
       </configurationParameter>
+
+    <configurationParameter>
+        <name>use_local_frame</name>
+        <type>Boolean</type>
+        <multiValued>false</multiValued>
+        <mandatory>false</mandatory>
+        <overrides>
+          <parameter>ProductCounter/use_local_frame</parameter>
+        </overrides>
+    </configurationParameter>
+
     </configurationParameters>
     <configurationParameterSettings>
       <nameValuePair>
@@ -184,13 +195,16 @@
         <value>
         <array>
           <string>shelf_system_0</string>
-<!--          <string>shelf_system_1</string>-->
-<!--          <string>shelf_system_2</string>-->
         </array>
         </value>
       </nameValuePair>
 
-
+      <nameValuePair>
+        <name>use_local_frame</name>
+        <value>
+         <boolean>true</boolean>
+        </value>
+      </nameValuePair>
 
     </configurationParameterSettings>
     <flowConstraints>

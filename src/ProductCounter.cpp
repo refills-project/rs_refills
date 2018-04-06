@@ -34,32 +34,42 @@ using namespace uima;
 class ProductCounter : public DrawingAnnotator
 {
 private:
-  bool external_;
-  tf::StampedTransform camToWorld;
+  bool external_, useLocalFrame_;
+  tf::StampedTransform camToWorld_;
 
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloudFiltered_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr_;
   std::vector<pcl::PointIndices> cluster_indices_;
 
   cv::Mat rgb_;
+  std::string localFrameName_;
 
   struct BoundingBox
   {
     pcl::PointXYZ minPt, maxPt;
   };
 
+
+  tf::TransformListener *listener;
   std::vector<BoundingBox> cluster_boxes;
+  ros::NodeHandle nodeHandle_;
 public:
 
-  ProductCounter(): DrawingAnnotator(__func__)
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~")
+
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+
+    listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
+
   }
   TyErrorId initialize(AnnotatorContext &ctx)
   {
     outInfo("initialize");
     ctx.extractValue("external", external_);
+
+    ctx.extractValue("use_local_frame", useLocalFrame_);
     return UIMA_ERR_NONE;
   }
 
@@ -107,26 +117,17 @@ public:
           }
           else
             return false;
-          if(doc["detect"].HasMember("shelf_type"))
+          if(useLocalFrame_)
           {
-            shelf_type = dQuery["shelf_type"].GetString();
-          }
-          else
-          {
-            //for now only two kinds of shelves: hanging and standing
-            shelf_type = "standing";
+            if(!dQuery.HasMember("location")) return false;
+            localFrameName_ = dQuery["location"].GetString();
           }
 
-          if(doc["detect"].HasMember("width"))
-          {
-            distToNextSep = dQuery["width"].GetFloat();
-          }
-          else
-          {
-            //for now only two kinds of shelves: hanging and standing
-            distToNextSep = 0.0;
-          }
+          if(dQuery.HasMember("shelf_type")) shelf_type = dQuery["shelf_type"].GetString();
+          else shelf_type = "standing";
 
+          if(dQuery.HasMember("width")) distToNextSep = dQuery["width"].GetFloat();
+          else distToNextSep = 0.0;
         }
         else
           return false;
@@ -204,11 +205,11 @@ public:
       minX = poseStamped.getOrigin().x() * 1.03;
       maxX = poseStamped.getOrigin().x() * 1.03 + width;
 
-      minY = poseStamped.getOrigin().y();
+      minY = poseStamped.getOrigin().y() * 1.03;
       maxY = poseStamped.getOrigin().y() + 0.4; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z() * 1.05;
-      maxZ = poseStamped.getOrigin().z() + depth * 1.05;
+      minZ = poseStamped.getOrigin().z() ;
+      maxZ = poseStamped.getOrigin().z() + depth ;
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -385,17 +386,41 @@ public:
     cas.get(VIEW_CLOUD, *cloud_ptr_);
     cas.get(VIEW_NORMALS, *cloud_normals);
     cas.get(VIEW_COLOR_IMAGE, rgb_);
+
+    sensor_msgs::CameraInfo camInfo;
+    cas.get(VIEW_CAMERA_INFO, camInfo);
+
     rs::Scene scene = cas.getScene();
-    camToWorld.setIdentity();
-    if(scene.viewPoint.has())
-      rs::conversion::from(scene.viewPoint.get(), camToWorld);
+
+    camToWorld_.setIdentity();
+    if(scene.viewPoint.has() && !useLocalFrame_)
+      rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+    else if(useLocalFrame_)
+    {
+      try
+      {
+
+        listener->waitForTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, ros::Duration(2));
+        listener->lookupTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
+        if (poseStamped.frame_id_ != localFrameName_)
+        {
+            listener->transformPose(localFrameName_,poseStamped,poseStamped);
+            outInfo("New Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
+        }
+      }
+      catch(tf::TransformException &ex)
+      {
+        outError(ex.what());
+        return UIMA_ERR_NONE;
+      }
+    }
 
     Eigen::Affine3d eigenTransform;
-    tf::transformTFToEigen(camToWorld, eigenTransform);
+    tf::transformTFToEigen(camToWorld_, eigenTransform);
     //        pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
     pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloud_ptr_, eigenTransform);
     *cloudFiltered_ = *cloud_ptr_;
-
+    pcl::io::savePCDFileASCII("filtered_cloud.pcd",*cloudFiltered_);
     //0.4 is shelf_depth
     if(width != 0.0 && depth != 0.0)
       filterCloud(poseStamped, width, depth, shelfType); //height  (which imo is depth of a shelf is given by the shelf_type)
@@ -453,12 +478,12 @@ public:
     double pointSize = 1.0;
     if(firstRun)
     {
-      visualizer.addPointCloud(cloud_ptr_, cloudname);
+      visualizer.addPointCloud(cloudFiltered_, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
     }
     else
     {
-      visualizer.updatePointCloud(cloud_ptr_,  cloudname);
+      visualizer.updatePointCloud(cloudFiltered_,  cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
       visualizer.removeAllShapes();
     }
