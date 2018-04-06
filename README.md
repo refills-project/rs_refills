@@ -49,10 +49,10 @@ Returns a vector of object descritions. Each object description is a json string
       "source":"ShelfDetector",
       "name":"0"
    },
-   "pose":[
+   "poses":[
       {
          "source":"ShelfDetector",
-         "pose":{
+         "pose_stamped":{
             "header":{
                "seq":0,
                "stamp":{
