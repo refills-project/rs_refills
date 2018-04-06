@@ -274,6 +274,30 @@ public:
       else
         ++it;
     }
+
+    //if two clusters in the same y range
+    for(std::vector<pcl::PointIndices>::iterator it1 = cluster_i.begin();
+        it1 != cluster_i.end();)
+    {
+      for(std::vector<pcl::PointIndices>::iterator it2 =cluster_i.begin();
+          it2 != cluster_i.end();)
+      {
+        if(it1==it2) {it2++; continue;}
+        Eigen::Vector4f c1, c2;
+        pcl::compute3DCentroid(*cloudFiltered_, *it1, c1);
+        pcl::compute3DCentroid(*cloudFiltered_, *it2, c2);
+        if(std::abs(c1[1] - c2[1]) < height)
+        {
+          for (auto idx:it2->indices)
+              it1->indices.push_back(idx);
+          it2 = cluster_i.erase(it2);
+        }
+        else it2++;
+      }
+      it1++;
+    }
+
+
     outInfo("Found " << cluster_i.size() << " good clusters!");
 
     float gminX = std::numeric_limits<float>::max(),
@@ -323,7 +347,8 @@ public:
           pass.setFilterFieldName("y");//
           pass.setFilterLimits(minY, maxY); //full depth of four layered shelf
           pass.filter(newIndices.indices);
-          cluster_indices_.push_back(newIndices);
+          if(newIndices.indices.size() > 100) //nois level?
+            cluster_indices_.push_back(newIndices);
         }
       }
       outError("THIS: " << count);
@@ -402,10 +427,10 @@ public:
 
         listener->waitForTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, ros::Duration(2));
         listener->lookupTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
-        if (poseStamped.frame_id_ != localFrameName_)
+        if(poseStamped.frame_id_ != localFrameName_)
         {
-            listener->transformPose(localFrameName_,poseStamped,poseStamped);
-            outInfo("New Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
+          listener->transformPose(localFrameName_, poseStamped, poseStamped);
+          outInfo("New Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
         }
       }
       catch(tf::TransformException &ex)
@@ -420,7 +445,7 @@ public:
     //        pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
     pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloud_ptr_, eigenTransform);
     *cloudFiltered_ = *cloud_ptr_;
-    pcl::io::savePCDFileASCII("filtered_cloud.pcd",*cloudFiltered_);
+    pcl::io::savePCDFileASCII("filtered_cloud.pcd", *cloudFiltered_);
     //0.4 is shelf_depth
     if(width != 0.0 && depth != 0.0)
       filterCloud(poseStamped, width, depth, shelfType); //height  (which imo is depth of a shelf is given by the shelf_type)
