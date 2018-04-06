@@ -86,11 +86,13 @@ Count an object
     {"detect":{
          "type":"ProductWithAN046088",
          "pose_stamped":{
-                     "header":{"frame_id":"map"},
+                     "header":{"frame_id":"some_tf_frame"},
                      "pose"  :{"position":{"x":0.65,"y":-0.57,"z":0.58}
                     }
             },
-         "shelf_type":"standing"   
+         "shelf_type":"standing", 
+         "width":0.23,
+         "location":"tf_frame_of_shelf_meter"
      }
 ```
   
