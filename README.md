@@ -22,7 +22,8 @@ Dependencies:
  type| The type of object you want to detect | [shelf, KnowRob object class]
  location| the semantic location you want to perform the perception task at | [shelf_system_0, shelf_system_1, ...] 
  command | the command that you watn to send (useful for asynch perception tasks that take longer to execut and need starting and stopping | *start* - start the task </br> *stop* - stop the task
- pose | pose of separator as in: ``"pose":{"position":{"x":-0.96,"y":0.42,"z":1.41},"orientation":{"x":0.0,"y":0.0,"z":0.0,"w":1.0}, "frame_id": map"}``
+ pose_stamped | pose of separator as in: ``"pose_stamped":{"header":{"frame_id":"map"},"pose":{"position":{"x":-0.96,"y":0.42,"z":1.41},"orientation":{"x":0.0,"y":0.0,"z":0.0,"w":1.0}}}``
+ shelf_type | specify the shelf_type: hanging or standing (important for counting)
  
 *Query examples* 
  
@@ -81,8 +82,16 @@ Returns a vector of object descritions. Each object description is a json string
 
 
 Count an object
-
-``"{\"detect\":{\"type\":\"ProductWithAN377954\",\"pose\":{"position":{\"x\":1.30,\"y\":-0.57,\"\
-  z\":1.23},\"frame_id\":\"map\"}}}"``
+```json
+    {"detect":{
+         "type":"ProductWithAN046088",
+         "pose_stamped":{
+                     "header":{"frame_id":"map"},
+                     "pose"  :{"position":{"x":0.65,"y":-0.57,"z":0.58}
+                    }
+            },
+         "shelf_type":"standing"   
+     }
+```
   
 Right now it will return a vector of size equal to the number of objects it has found. Empty vector otherwise. Will be extended to perform a check for the correct object. 
