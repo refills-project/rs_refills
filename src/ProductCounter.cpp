@@ -21,6 +21,7 @@
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
 
+
 //rapidjson
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
@@ -113,7 +114,7 @@ public:
             pose.frame_id_ = dQuery["pose_stamped"]["header"]["frame_id"].GetString();
             pose.setOrigin(position);
             pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-            pose.stamp_ = ros::Time::now();
+//            pose.stamp_ = ros::Time::now();
           }
           else
             return false;
@@ -202,14 +203,14 @@ public:
     }
     else if(shelf_type == "standing")
     {
-      minX = poseStamped.getOrigin().x() * 1.03;
-      maxX = poseStamped.getOrigin().x() * 1.03 + width;
+      minX = poseStamped.getOrigin().x();//+0.02 ; //this is weird
+      maxX = minX + width -0.02;
 
-      minY = poseStamped.getOrigin().y() * 1.03;
+      minY = poseStamped.getOrigin().y() ;
       maxY = poseStamped.getOrigin().y() + 0.4; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z() ;
-      maxZ = poseStamped.getOrigin().z() + depth ;
+      minZ = poseStamped.getOrigin().z()+0.015  ; //raise with 1 cm
+      maxZ = minZ + depth +0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -429,6 +430,7 @@ public:
         listener->lookupTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
         if(poseStamped.frame_id_ != localFrameName_)
         {
+
           listener->transformPose(localFrameName_, poseStamped, poseStamped);
           outInfo("New Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
         }
@@ -447,8 +449,8 @@ public:
     *cloudFiltered_ = *cloud_ptr_;
     pcl::io::savePCDFileASCII("filtered_cloud.pcd", *cloudFiltered_);
     //0.4 is shelf_depth
-    if(width != 0.0 && height != 0.0)
-      filterCloud(poseStamped, width, height, shelfType); //depth of a shelf is given by the shelf_type
+    if(width != 0.0 && distToNextSep != 0.0)
+      filterCloud(poseStamped, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
     else if(distToNextSep != 0.0)
     {
       ///0.22 m is the biggest height of object we consider if there is no info
