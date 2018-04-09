@@ -237,7 +237,7 @@ public:
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
-  void clusterCloud(const double &height, const pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals)
+  void clusterCloud(const double &obj_depth, const pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals)
   {
     pcl::PointCloud<pcl::Label>::Ptr input_labels(new pcl::PointCloud<pcl::Label>);
     pcl::Label label;
@@ -286,7 +286,7 @@ public:
         Eigen::Vector4f c1, c2;
         pcl::compute3DCentroid(*cloudFiltered_, *it1, c1);
         pcl::compute3DCentroid(*cloudFiltered_, *it2, c2);
-        if(std::abs(c1[1] - c2[1]) < height)
+        if(std::abs(c1[1] - c2[1]) < obj_depth)
         {
           for (auto idx:it2->indices)
               it1->indices.push_back(idx);
@@ -309,7 +309,7 @@ public:
       Eigen::Vector4f  min, max;
       pcl::getMinMax3D(*cloudFiltered_, cluster_i[i].indices, min, max);
       float pdepth = std::abs(min[1] - max[1]);
-      int count = round(pdepth / height);
+      int count = round(pdepth / obj_depth);
 
       BoundingBox bb;
       bb.maxPt.x = max[0];
@@ -447,8 +447,8 @@ public:
     *cloudFiltered_ = *cloud_ptr_;
     pcl::io::savePCDFileASCII("filtered_cloud.pcd", *cloudFiltered_);
     //0.4 is shelf_depth
-    if(width != 0.0 && depth != 0.0)
-      filterCloud(poseStamped, width, depth, shelfType); //height  (which imo is depth of a shelf is given by the shelf_type)
+    if(width != 0.0 && height != 0.0)
+      filterCloud(poseStamped, width, height, shelfType); //depth of a shelf is given by the shelf_type
     else if(distToNextSep != 0.0)
     {
       ///0.22 m is the biggest height of object we consider if there is no info
@@ -458,7 +458,7 @@ public:
       return false;
     //cluster the filtered cloud and split clusters in chunks of height (on y axes)
 
-    clusterCloud(height, cloud_normals);
+    clusterCloud(depth, cloud_normals);
     addToCas(tcas, objToScan);
     return true;
   }

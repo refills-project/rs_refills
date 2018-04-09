@@ -406,10 +406,11 @@ public:
 
     outInfo("Cloud size: " << cloud_->points.size());
     outInfo("took: " << clock.getTime() << " ms.");
-    findLinesInCloud();
 
-    solveLineIds();
-    addToCas(tcas);
+//    findLinesInCloud();
+
+//    solveLineIds();
+//    addToCas(tcas);
 
     rs::Query query = rs::create<rs::Query>(tcas);
     if(cas.getFS("QUERY", query))
