@@ -219,8 +219,8 @@ public:
       minX = poseStamped.getOrigin().x()+0.01 ;
       maxX = minX + width - 0.01;
 
-      minY = poseStamped.getOrigin().y()-0.02 ; //move closer to cam with 2 cm
-      maxY = minY + 0.42; //this can vary between 0.3 and 0.5;
+      minY = poseStamped.getOrigin().y()-0.04 ; //move closer to cam with 2 cm
+      maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
 
       minZ = poseStamped.getOrigin().z() + 0.025  ; //raise with 2.5 cm
       maxZ = poseStamped.getOrigin().z() + depth + 0.02 ; //make sure to get point from the top
@@ -283,7 +283,7 @@ public:
     for(std::vector<pcl::PointIndices>::iterator it = cluster_i.begin();
         it != cluster_i.end();)
     {
-      if(it->indices.size() < 300)
+      if(it->indices.size() < 600)
         it = cluster_i.erase(it);
       else
         ++it;
