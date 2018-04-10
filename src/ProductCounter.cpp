@@ -17,6 +17,12 @@
 #include <rs/types/all_types.h>
 #include <rs/DrawingAnnotator.h>
 
+
+//image_transport
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+
 //tf
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
@@ -54,15 +60,22 @@ private:
   tf::TransformListener *listener;
   std::vector<BoundingBox> cluster_boxes;
   ros::NodeHandle nodeHandle_;
+
+  image_transport::Publisher image_pub_;
+  image_transport::ImageTransport it_;
+
+    sensor_msgs::CameraInfo camInfo_;
+
 public:
 
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~")
-
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~"),it_(nodeHandle_)
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
     listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
+
+    image_pub_ = it_.advertise("counting_image", 1, true);
 
   }
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -114,7 +127,7 @@ public:
             pose.frame_id_ = dQuery["pose_stamped"]["header"]["frame_id"].GetString();
             pose.setOrigin(position);
             pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-//            pose.stamp_ = ros::Time::now();
+            //            pose.stamp_ = ros::Time::now();
           }
           else
             return false;
@@ -204,13 +217,13 @@ public:
     else if(shelf_type == "standing")
     {
       minX = poseStamped.getOrigin().x();//+0.02 ; //this is weird
-      maxX = minX + width -0.02;
+      maxX = minX + width - 0.02;
 
       minY = poseStamped.getOrigin().y() ;
       maxY = poseStamped.getOrigin().y() + 0.4; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z()+0.015  ; //raise with 1 cm
-      maxZ = minZ + depth +0.02 ; //make sure to get point from the top
+      minZ = poseStamped.getOrigin().z() + 0.015  ; //raise with 1 cm
+      maxZ = minZ + depth + 0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -280,17 +293,21 @@ public:
     for(std::vector<pcl::PointIndices>::iterator it1 = cluster_i.begin();
         it1 != cluster_i.end();)
     {
-      for(std::vector<pcl::PointIndices>::iterator it2 =cluster_i.begin();
+      for(std::vector<pcl::PointIndices>::iterator it2 = cluster_i.begin();
           it2 != cluster_i.end();)
       {
-        if(it1==it2) {it2++; continue;}
+        if(it1 == it2)
+        {
+          it2++;
+          continue;
+        }
         Eigen::Vector4f c1, c2;
         pcl::compute3DCentroid(*cloudFiltered_, *it1, c1);
         pcl::compute3DCentroid(*cloudFiltered_, *it2, c2);
         if(std::abs(c1[1] - c2[1]) < obj_depth)
         {
-          for (auto idx:it2->indices)
-              it1->indices.push_back(idx);
+          for(auto idx : it2->indices)
+            it1->indices.push_back(idx);
           it2 = cluster_i.erase(it2);
         }
         else it2++;
@@ -413,8 +430,8 @@ public:
     cas.get(VIEW_NORMALS, *cloud_normals);
     cas.get(VIEW_COLOR_IMAGE, rgb_);
 
-    sensor_msgs::CameraInfo camInfo;
-    cas.get(VIEW_CAMERA_INFO, camInfo);
+
+    cas.get(VIEW_CAMERA_INFO, camInfo_);
 
     rs::Scene scene = cas.getScene();
 
@@ -426,8 +443,8 @@ public:
       try
       {
 
-        listener->waitForTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, ros::Duration(2));
-        listener->lookupTransform(localFrameName_, camInfo.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
+        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, ros::Duration(2));
+        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
         if(poseStamped.frame_id_ != localFrameName_)
         {
 
@@ -480,23 +497,33 @@ public:
       cluster_indices_.clear();
       cluster_boxes.clear();
       countObject(tcas);
+      drawOnImage();
     }
     return UIMA_ERR_NONE;
   }
 
-
-  void drawImageWithLock(cv::Mat &disp)
+  void drawOnImage()
   {
-    disp = rgb_.clone();
     for(int j = 0; j < cluster_indices_.size(); ++j)
     {
       for(int i = 0; i < cluster_indices_[j].indices.size(); ++i)
       {
         int index = cluster_indices_[j].indices[i];
         //        int c = cluster_indices[j].indices[i]%disp.cols();
-        disp.at<cv::Vec3b>(index) = rs::common::cvVec3bColors[j % rs::common::numberOfColors];
+        rgb_.at<cv::Vec3b>(index) = rs::common::cvVec3bColors[j % rs::common::numberOfColors];
       }
     }
+
+    cv_bridge::CvImage outImgMsgs;
+    outImgMsgs.header = camInfo_.header;
+    outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
+    outImgMsgs.image = rgb_;
+    image_pub_.publish(outImgMsgs.toImageMsg());
+  }
+
+  void drawImageWithLock(cv::Mat &disp)
+  {
+    disp = rgb_.clone();
   }
 
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
