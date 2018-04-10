@@ -216,13 +216,13 @@ public:
     }
     else if(shelf_type == "standing")
     {
-      minX = poseStamped.getOrigin().x();//+0.02 ; //this is weird
-      maxX = minX + width - 0.02;
+      minX = poseStamped.getOrigin().x()+0.01 ;
+      maxX = minX + width - 0.01;
 
-      minY = poseStamped.getOrigin().y() ;
-      maxY = poseStamped.getOrigin().y() + 0.4; //this can vary between 0.3 and 0.5;
+      minY = poseStamped.getOrigin().y()-0.02 ; //move closer to cam with 2 cm
+      maxY = minY + 0.42; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z() + 0.015  ; //raise with 1 cm
+      minZ = poseStamped.getOrigin().z() + 0.025  ; //raise with 2.5 cm
       maxZ = minZ + depth + 0.02 ; //make sure to get point from the top
     }
 
@@ -484,8 +484,7 @@ public:
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
     outInfo("process start");
-    rs::StopWatch clock;
-
+    MEASURE_TIME;
 
     if(external_)
     {
