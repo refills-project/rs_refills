@@ -223,7 +223,7 @@ public:
       maxY = minY + 0.42; //this can vary between 0.3 and 0.5;
 
       minZ = poseStamped.getOrigin().z() + 0.025  ; //raise with 2.5 cm
-      maxZ = minZ + depth + 0.02 ; //make sure to get point from the top
+      maxZ = poseStamped.getOrigin().z() + depth + 0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -471,7 +471,7 @@ public:
     else if(distToNextSep != 0.0)
     {
       ///0.22 m is the biggest height of object we consider if there is no info
-      filterCloud(poseStamped, distToNextSep, 0.22, shelfType);
+      filterCloud(poseStamped, distToNextSep, 0.15, shelfType);
     }
     else
       return false;
