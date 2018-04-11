@@ -522,7 +522,9 @@ public:
 
   void drawImageWithLock(cv::Mat &disp)
   {
-    disp = rgb_.clone();
+    if(!rgb_.empty())
+        disp = rgb_.clone();
+    else disp = cv::Mat::ones(640,480,CV_8UC3);
   }
 
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
