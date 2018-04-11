@@ -119,6 +119,7 @@ public:
     else
     {
       outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
+      processing_mutex_.unlock();
       return false;
     }
     processing_mutex_.unlock();

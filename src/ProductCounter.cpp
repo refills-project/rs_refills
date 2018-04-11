@@ -6,6 +6,9 @@
 #include <pcl/common/common.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/kdtree/kdtree_flann.h>
+
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/euclidean_cluster_comparator.h>
 #include <pcl/segmentation/organized_connected_component_segmentation.h>
@@ -64,11 +67,13 @@ private:
   image_transport::Publisher image_pub_;
   image_transport::ImageTransport it_;
 
-    sensor_msgs::CameraInfo camInfo_;
+  tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_;
+
+  sensor_msgs::CameraInfo camInfo_;
 
 public:
 
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~"),it_(nodeHandle_)
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~"), it_(nodeHandle_)
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -216,10 +221,10 @@ public:
     }
     else if(shelf_type == "standing")
     {
-      minX = poseStamped.getOrigin().x()+0.01 ;
+      minX = poseStamped.getOrigin().x() + 0.01 ;
       maxX = minX + width - 0.01;
 
-      minY = poseStamped.getOrigin().y()-0.04 ; //move closer to cam with 2 cm
+      minY = poseStamped.getOrigin().y() - 0.04 ; //move closer to cam with 2 cm
       maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
 
       minZ = poseStamped.getOrigin().z() + 0.025  ; //raise with 2.5 cm
@@ -416,10 +421,12 @@ public:
     std::string objToScan = "" ;
     std::string shelfType = "";
     float distToNextSep = 0.0f;
-    tf::Stamped<tf::Pose> poseStamped;
-    if(!handleQuery(tcas, objToScan, poseStamped, shelfType, distToNextSep)) return false;
+    tf::Stamped<tf::Pose> separatorPose, nextSeparatorPose;
+    if(!handleQuery(tcas, objToScan, separatorPose, shelfType, distToNextSep)) return false;
+    nextSeparatorPose = separatorPose;
+
     outInfo("Obj To Scan is: " << objToScan);
-    outInfo("Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
+    outInfo("Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
     double height = 0.0, width = 0.0, depth = 0.0;
     getObjectDims(objToScan, height, width, depth);
     outInfo("height = " << height << " width = " << width << " depth  = " << depth);
@@ -442,15 +449,23 @@ public:
     {
       try
       {
-
-        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, ros::Duration(2));
-        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0)/*camInfo.header.stamp*/, camToWorld_);
-        if(poseStamped.frame_id_ != localFrameName_)
+        //TODO CHANGE THIS ACK TO camInfo._head
+        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
+        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
+        if(separatorPose.frame_id_ != localFrameName_)
         {
 
-          listener->transformPose(localFrameName_, poseStamped, poseStamped);
-          outInfo("New Separator location is: [" << poseStamped.getOrigin().x() << "," << poseStamped.getOrigin().y() << "," << poseStamped.getOrigin().z() << "]");
+          listener->transformPose(localFrameName_, separatorPose, separatorPose);
+
+          outInfo("New Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
         }
+
+        tf::Vector3 position = separatorPose.getOrigin();
+        position.setX(position.x() + distToNextSep);
+        nextSeparatorPose.setOrigin(position);
+
+        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ separatorPose, /*"map"*/ separatorPoseInImage_);
+        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */nextSeparatorPose,/* "map"*/ nextSeparatorPoseInImage_);
       }
       catch(tf::TransformException &ex)
       {
@@ -461,17 +476,15 @@ public:
 
     Eigen::Affine3d eigenTransform;
     tf::transformTFToEigen(camToWorld_, eigenTransform);
-    //        pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloud_ptr_, eigenTransform);
-    *cloudFiltered_ = *cloud_ptr_;
-    pcl::io::savePCDFileASCII("filtered_cloud.pcd", *cloudFiltered_);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
+
     //0.4 is shelf_depth
     if(width != 0.0 && distToNextSep != 0.0)
-      filterCloud(poseStamped, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
+      filterCloud(separatorPose, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
     else if(distToNextSep != 0.0)
     {
       ///0.22 m is the biggest height of object we consider if there is no info
-      filterCloud(poseStamped, distToNextSep, 0.15, shelfType);
+      filterCloud(separatorPose, distToNextSep, 0.15, shelfType);
     }
     else
       return false;
@@ -500,6 +513,98 @@ public:
     }
     return UIMA_ERR_NONE;
   }
+  cv::Point backproject3DPoint(const tf::Stamped<tf::Pose> pose3D)
+  {
+    cv::Mat _A_matrix;
+    _A_matrix = cv::Mat::zeros(3, 3, CV_64FC1);   // intrinsic camera parameters
+    _A_matrix.at<double>(0, 0) = camInfo_.K[0];     //      [ fx   0  cx ]
+    _A_matrix.at<double>(1, 1) = camInfo_.K[4];     //      [  0  fy  cy ]
+    _A_matrix.at<double>(0, 2) = camInfo_.K[2];     //      [  0   0   1 ]
+    _A_matrix.at<double>(1, 2) = camInfo_.K[5];
+    _A_matrix.at<double>(2, 2) = 1;
+
+    // 3D point vector [x y z]'
+    cv::Mat point3d_vec = cv::Mat(3, 1, CV_64FC1);
+    point3d_vec.at<double>(0) = pose3D.getOrigin().x();
+    point3d_vec.at<double>(1) = pose3D.getOrigin().y();
+    point3d_vec.at<double>(2) = pose3D.getOrigin().z();
+    //    point3d_vec.at<double>(3) = 1;
+
+    // 2D point vector [u v 1]'
+    cv::Mat point2d_vec = cv::Mat(3, 1, CV_64FC1);
+    point2d_vec = _A_matrix * point3d_vec;
+
+
+    // Normalization of [u v]'
+    cv::Point point;
+    point.x = (int)(point2d_vec.at<double>(0) / point2d_vec.at<double>(2));
+    point.y = (int)(point2d_vec.at<double>(1) / point2d_vec.at<double>(2));
+
+    //    outInfo("")
+    return point;
+  }
+
+
+  cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D)
+  {
+    std::vector<cv::Point3d> objectPoints;
+    objectPoints.push_back(cv::Point3d(pose3D.getOrigin().x(), pose3D.getOrigin().y(), pose3D.getOrigin().z()));
+
+    // Create the known projection matrix
+
+    cv::Mat P(3, 4, cv::DataType<double>::type);
+    //    P.data = *camInfo_.P.data();
+    P.at<double>(0, 0) = camInfo_.P[0];
+    P.at<double>(1, 0) = camInfo_.P[4];
+    P.at<double>(2, 0) = camInfo_.P[8];
+
+    P.at<double>(0, 1) = camInfo_.P[1];
+    P.at<double>(1, 1) = camInfo_.P[5];
+    P.at<double>(2, 1) = camInfo_.P[9];
+
+    P.at<double>(0, 2) = camInfo_.P[2];
+    P.at<double>(1, 2) = camInfo_.P[6];
+    P.at<double>(2, 2) = camInfo_.P[10];
+
+    P.at<double>(0, 3) = camInfo_.P[3];
+    P.at<double>(1, 3) = camInfo_.P[7];
+    P.at<double>(2, 3) = camInfo_.P[11];
+
+    // Decompose the projection matrix into:
+    cv::Mat K(3, 3, cv::DataType<double>::type); // intrinsic parameter matrix
+    cv::Mat rvec(3, 3, cv::DataType<double>::type); // rotation matrix
+    cv::Mat Thomogeneous(4, 1, cv::DataType<double>::type); // translation vector
+
+    cv::decomposeProjectionMatrix(P, K, rvec, Thomogeneous);
+
+    cv::Mat T(3, 1, cv::DataType<double>::type); // translation vector
+    //    cv::convertPointsHomogeneous(Thomogeneous, T);
+    T.at<double>(0) = 0.0;
+    T.at<double>(1) = 0.0;
+    T.at<double>(2) = 0.0;
+
+    std::cout << "K: " << K << std::endl;
+    std::cout << "rvec: " << rvec << std::endl;
+    std::cout << "T: " << T << std::endl;
+
+    // Create zero distortion
+    cv::Mat distCoeffs(4, 1, cv::DataType<double>::type);
+    distCoeffs.at<double>(0) = 0;
+    distCoeffs.at<double>(1) = 0;
+    distCoeffs.at<double>(2) = 0;
+    distCoeffs.at<double>(3) = 0;
+
+    std::vector<cv::Point2d> projectedPoints;
+
+    cv::Mat rvecR(3, 1, cv::DataType<double>::type); //rodrigues rotation matrix
+    //    cv::Rodrigues(rvec,rvecR);
+    rvecR.at<double>(0) = 0.0;
+    rvecR.at<double>(1) = 0.0;
+    rvecR.at<double>(2) = 0.0;
+
+    cv::projectPoints(objectPoints, rvecR, T, K, distCoeffs, projectedPoints);
+    return projectedPoints[0];
+  }
 
   void drawOnImage()
   {
@@ -513,6 +618,45 @@ public:
       }
     }
 
+
+    //THE HACKY WAY
+    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
+    leftSepPoint.x = separatorPoseInImage_.getOrigin().x();
+    leftSepPoint.y = separatorPoseInImage_.getOrigin().y();
+    leftSepPoint.z = separatorPoseInImage_.getOrigin().z();
+
+    rightSepPoint.x = nextSeparatorPoseInImage_.getOrigin().x();
+    rightSepPoint.y = nextSeparatorPoseInImage_.getOrigin().y();
+    rightSepPoint.z = nextSeparatorPoseInImage_.getOrigin().z();
+
+    pcl::KdTreeFLANN<pcl::PointXYZRGBA> kdtree;
+    kdtree.setInputCloud(cloud_ptr_);
+
+    // K nearest neighbor search
+    std::vector<int> pointIdxNKNSearch(1);
+    std::vector<float> pointNKNSquaredDistance(1);
+    if(kdtree.nearestKSearch (leftSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
+    {
+        cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
+        cv::circle(rgb_, circleCenter, 10, cv::Scalar(255, 0, 0), 3);
+    }
+    pointIdxNKNSearch.clear();
+    pointNKNSquaredDistance.clear();
+
+    if(kdtree.nearestKSearch (rightSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
+    {
+        cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
+        cv::circle(rgb_, circleCenter, 10, cv::Scalar(0, 255, 0), 3);
+    }
+
+
+    //THE NICE WAY (DOES NOT WORK FOR NOW)
+//    cv::Point leftSepInImage =  projection(separatorPoseInImage_);
+//    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
+
+//    cv::circle(rgb_, leftSepInImage, 20, cv::Scalar(255, 0, 0), 3);
+//    cv::circle(rgb_, rightSepInImage, 20, cv::Scalar(0, 255, 0), 3);
+
     cv_bridge::CvImage outImgMsgs;
     outImgMsgs.header = camInfo_.header;
     outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
@@ -523,8 +667,8 @@ public:
   void drawImageWithLock(cv::Mat &disp)
   {
     if(!rgb_.empty())
-        disp = rgb_.clone();
-    else disp = cv::Mat::ones(640,480,CV_8UC3);
+      disp = rgb_.clone();
+    else disp = cv::Mat::ones(480, 640, CV_8UC3);
   }
 
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
