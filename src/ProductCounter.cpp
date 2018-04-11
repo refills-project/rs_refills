@@ -222,13 +222,13 @@ public:
     else if(shelf_type == "standing")
     {
       minX = poseStamped.getOrigin().x() + 0.01 ;
-      maxX = minX + width - 0.01;
+      maxX = minX + width - 0.02;
 
-      minY = poseStamped.getOrigin().y() - 0.04 ; //move closer to cam with 2 cm
+      minY = poseStamped.getOrigin().y() - 0.04; //move closer to cam with 2 cm
       maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z() + 0.025  ; //raise with 2.5 cm
-      maxZ = poseStamped.getOrigin().z() + depth + 0.02 ; //make sure to get point from the top
+      minZ = poseStamped.getOrigin().z()+ 0.015  ; //raise with 2.5 cm
+      maxZ = poseStamped.getOrigin().z() + depth;+ 0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -513,36 +513,6 @@ public:
     }
     return UIMA_ERR_NONE;
   }
-  cv::Point backproject3DPoint(const tf::Stamped<tf::Pose> pose3D)
-  {
-    cv::Mat _A_matrix;
-    _A_matrix = cv::Mat::zeros(3, 3, CV_64FC1);   // intrinsic camera parameters
-    _A_matrix.at<double>(0, 0) = camInfo_.K[0];     //      [ fx   0  cx ]
-    _A_matrix.at<double>(1, 1) = camInfo_.K[4];     //      [  0  fy  cy ]
-    _A_matrix.at<double>(0, 2) = camInfo_.K[2];     //      [  0   0   1 ]
-    _A_matrix.at<double>(1, 2) = camInfo_.K[5];
-    _A_matrix.at<double>(2, 2) = 1;
-
-    // 3D point vector [x y z]'
-    cv::Mat point3d_vec = cv::Mat(3, 1, CV_64FC1);
-    point3d_vec.at<double>(0) = pose3D.getOrigin().x();
-    point3d_vec.at<double>(1) = pose3D.getOrigin().y();
-    point3d_vec.at<double>(2) = pose3D.getOrigin().z();
-    //    point3d_vec.at<double>(3) = 1;
-
-    // 2D point vector [u v 1]'
-    cv::Mat point2d_vec = cv::Mat(3, 1, CV_64FC1);
-    point2d_vec = _A_matrix * point3d_vec;
-
-
-    // Normalization of [u v]'
-    cv::Point point;
-    point.x = (int)(point2d_vec.at<double>(0) / point2d_vec.at<double>(2));
-    point.y = (int)(point2d_vec.at<double>(1) / point2d_vec.at<double>(2));
-
-    //    outInfo("")
-    return point;
-  }
 
 
   cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D)
@@ -613,14 +583,13 @@ public:
       for(int i = 0; i < cluster_indices_[j].indices.size(); ++i)
       {
         int index = cluster_indices_[j].indices[i];
-        //        int c = cluster_indices[j].indices[i]%disp.cols();
         rgb_.at<cv::Vec3b>(index) = rs::common::cvVec3bColors[j % rs::common::numberOfColors];
       }
     }
 
 
     //THE HACKY WAY
-    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
+/*    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
     leftSepPoint.x = separatorPoseInImage_.getOrigin().x();
     leftSepPoint.y = separatorPoseInImage_.getOrigin().y();
     leftSepPoint.z = separatorPoseInImage_.getOrigin().z();
@@ -648,14 +617,14 @@ public:
         cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
         cv::circle(rgb_, circleCenter, 10, cv::Scalar(0, 255, 0), 3);
     }
+*/
 
+    //THE NICE WAY 
+    cv::Point leftSepInImage =  projection(separatorPoseInImage_);
+    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
 
-    //THE NICE WAY (DOES NOT WORK FOR NOW)
-//    cv::Point leftSepInImage =  projection(separatorPoseInImage_);
-//    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
-
-//    cv::circle(rgb_, leftSepInImage, 20, cv::Scalar(255, 0, 0), 3);
-//    cv::circle(rgb_, rightSepInImage, 20, cv::Scalar(0, 255, 0), 3);
+    cv::circle(rgb_, leftSepInImage, 5, cv::Scalar(255, 255, 0), 3);
+    cv::circle(rgb_, rightSepInImage, 5, cv::Scalar(0, 255, 255), 3);
 
     cv_bridge::CvImage outImgMsgs;
     outImgMsgs.header = camInfo_.header;
