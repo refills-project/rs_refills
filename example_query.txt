@@ -1,6 +1,5 @@
 
-
-'{"detect":{"type":"ProductWithAN046088","pose_stamped":{"header":{"frame_id":"map"},"pose":{"position":{"x":0.93,"y":-0.57,"z":0.57}}}}}'
+'{"detect": {"location":"map","pose_stamped": {"header": {"frame_id": "map","seq": 0},"pose":{"position": {"y": -0.59,"x": 1.30,"z": 1.2}}},"shelf_type": "standing","type": "ProductWithAN377954","width": 0.2}}'
 
 
 '{"scan":{"type":"shelf","location":"shelf_system_0","command":"start"}}'

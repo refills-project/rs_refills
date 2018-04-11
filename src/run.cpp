@@ -72,7 +72,7 @@ public:
     {
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
-      newPipelineOrder.push_back("RegionFilter");
+//      newPipelineOrder.push_back("RegionFilter");
       newPipelineOrder.push_back("NormalEstimator");
       newPipelineOrder.push_back("ShelfDetector");
     }
