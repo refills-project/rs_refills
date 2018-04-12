@@ -50,7 +50,7 @@ using namespace uima;
 class ShelfDetector : public DrawingAnnotator
 {
   ros::NodeHandle nh_;
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered_;
   pcl::PointCloud<pcl::Normal>::Ptr normals_;
 
@@ -95,6 +95,7 @@ public:
   ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::EDGE)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_filtered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
@@ -409,28 +410,16 @@ public:
 
     {
       MEASURE_TIME;
-      pcl::RadiusOutlierRemoval<pcl::PointXYZRGBA> rorfilter(true);  // Initializing with true will allow us to extract the removed indices
-      rorfilter.setInputCloud(cloud_filtered_);
-      rorfilter.setRadiusSearch(0.03);
-      rorfilter.setMinNeighborsInRadius(20);
-      rorfilter.setNegative(false);
-      rorfilter.setKeepOrganized(true);
-      rorfilter.filter(*cloud_filtered_);
-      outInfo("RadOutlRemovalFilter");
-      // The resulting cloud_out contains all points of cloud_in that have 4 or less neighbors within the 0.1 search radius
-      //      indices_rem = rorfilter.getRemovedIndices ();
-    }
-
-    {
-      MEASURE_TIME;
       pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
       sor.setInputCloud(cloud_filtered_);
       sor.setKeepOrganized(true);
-      sor.setMeanK(100);
-      sor.setStddevMulThresh(0.05);
+      sor.setMeanK(30);
+      sor.setStddevMulThresh(0.5);
       sor.filter(*cloud_filtered_);
       outInfo("SOR filter");
     }
+
+    *dispCloud_ = *cloud_filtered_;
   }
 
 
@@ -451,6 +440,7 @@ public:
     rs::Query query = rs::create<rs::Query>(tcas);
 
 
+    bool reset = false;
     if(cas.getFS("QUERY", query))
     {
       queryAsString = query.asJson();
@@ -466,62 +456,63 @@ public:
             localFrameName_ = jsonQuery["scan"]["location"].GetString();
           }
         }
-      }
-    }
-
-    rs::Scene scene = cas.getScene();
-    try
-    {
-      if(localFrameName_ == "map")
-      {
-        rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-      }
-      else
-      {
-        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
-        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
-      }
-    }
-    catch(tf::TransformException &ex)
-    {
-      outError(ex.what());
-      return UIMA_ERR_NONE;
-    }
-    Eigen::Affine3d eigenTransform;
-    tf::transformTFToEigen(camToWorld_, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
-
-    filterCloud(camToWorld_);
-
-    makeMaskedImage();
-    findLinesInImage();
-    findLinesInCloud();
-
-    solveLineIds();
-    addToCas(tcas);
-
-    //suboptimal but f. it
-    if(queryAsString != "")
-    {
-      rapidjson::Document jsonQuery;
-      jsonQuery.Parse(queryAsString.c_str());
-      if(jsonQuery.HasMember("scan"))
-      {
         if(jsonQuery["scan"].HasMember("command"))
         {
           std::string command = jsonQuery["scan"]["command"].GetString();
           if(command == "stop")
           {
             outWarn("Clearing chache of line segments");
-            lines_.clear();
-            localFrameName_ = "";
+            reset = true;
           }
         }
       }
     }
+
+    if(!reset)
+    {
+
+      rs::Scene scene = cas.getScene();
+      try
+      {
+        if(localFrameName_ == "map")
+        {
+          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+        }
+        else
+        {
+          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
+          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
+        }
+      }
+      catch(tf::TransformException &ex)
+      {
+        outError(ex.what());
+        return UIMA_ERR_NONE;
+      }
+      Eigen::Affine3d eigenTransform;
+      tf::transformTFToEigen(camToWorld_, eigenTransform);
+      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+
+      filterCloud(camToWorld_);
+
+      makeMaskedImage();
+      findLinesInImage();
+      findLinesInCloud();
+
+      solveLineIds();
+    }
+
+    //always add to CAS
+    addToCas(tcas);
+
+    //suboptimal but f. it
+    if(reset)
+    {
+      lines_.clear();
+      localFrameName_ = "";
+    }
     return UIMA_ERR_NONE;
   }
-
 
   void drawImageWithLock(cv::Mat &disp)
   {
@@ -570,18 +561,18 @@ public:
 
     if(firstRun)
     {
-      visualizer.addPointCloud(cloud_, "original");
+      visualizer.addPointCloud(dispCloud_, "original_filtered");
       visualizer.addPointCloud(cloud_filtered_, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
-      visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original");
+      visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original_filtered");
     }
     else
     {
 
-      visualizer.updatePointCloud(cloud_, "original");
-      visualizer.updatePointCloud(cloud_filtered_, cloudname);
+      visualizer.updatePointCloud(dispCloud_, "original_filtered");
+      visualizer.updatePointCloud(cloud_filtered_, cloudname);//this is very filtered: boundary cloud
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
-      visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original");
+      visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original_filtered");
     }
   }
 };
