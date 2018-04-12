@@ -622,7 +622,8 @@ public:
     //THE NICE WAY 
     cv::Point leftSepInImage =  projection(separatorPoseInImage_);
     cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
-
+outInfo("Left Sep image coords: "<<lefSepInImage);
+outInfo("Right Sep image coords: "<<rightSepInImage);
     cv::circle(rgb_, leftSepInImage, 5, cv::Scalar(255, 255, 0), 3);
     cv::circle(rgb_, rightSepInImage, 5, cv::Scalar(0, 255, 255), 3);
 
