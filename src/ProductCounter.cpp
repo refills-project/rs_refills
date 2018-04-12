@@ -213,22 +213,23 @@ public:
       minX = poseStamped.getOrigin().x() - width / 2;
       maxX = poseStamped.getOrigin().x() + width / 2;
 
-      minY = poseStamped.getOrigin().y();
+      minY = poseStamped.getOrigin().y()- 0.04;
       maxY = poseStamped.getOrigin().y() + 0.3;
 
-      maxZ = poseStamped.getOrigin().z() * 0.99;
-      minZ = poseStamped.getOrigin().z() - depth * 0.95;
+      maxZ = poseStamped.getOrigin().z();
+      minZ = poseStamped.getOrigin().z() - depth;
     }
     else if(shelf_type == "standing")
     {
-      minX = poseStamped.getOrigin().x() + 0.01 ;
-      maxX = minX + width - 0.02;
+      minX = poseStamped.getOrigin().x() + 0.02;
+      maxX = minX + width - 0.04;
 
       minY = poseStamped.getOrigin().y() - 0.04; //move closer to cam with 2 cm
       maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z()+ 0.015  ; //raise with 2.5 cm
-      maxZ = poseStamped.getOrigin().z() + depth;+ 0.02 ; //make sure to get point from the top
+      minZ = poseStamped.getOrigin().z() + 0.015  ; //raise with 2.5 cm
+      maxZ = poseStamped.getOrigin().z() + depth;
+      + 0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -589,41 +590,45 @@ public:
 
 
     //THE HACKY WAY
-/*    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
-    leftSepPoint.x = separatorPoseInImage_.getOrigin().x();
-    leftSepPoint.y = separatorPoseInImage_.getOrigin().y();
-    leftSepPoint.z = separatorPoseInImage_.getOrigin().z();
+    /*    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
+        leftSepPoint.x = separatorPoseInImage_.getOrigin().x();
+        leftSepPoint.y = separatorPoseInImage_.getOrigin().y();
+        leftSepPoint.z = separatorPoseInImage_.getOrigin().z();
 
-    rightSepPoint.x = nextSeparatorPoseInImage_.getOrigin().x();
-    rightSepPoint.y = nextSeparatorPoseInImage_.getOrigin().y();
-    rightSepPoint.z = nextSeparatorPoseInImage_.getOrigin().z();
+        rightSepPoint.x = nextSeparatorPoseInImage_.getOrigin().x();
+        rightSepPoint.y = nextSeparatorPoseInImage_.getOrigin().y();
+        rightSepPoint.z = nextSeparatorPoseInImage_.getOrigin().z();
 
-    pcl::KdTreeFLANN<pcl::PointXYZRGBA> kdtree;
-    kdtree.setInputCloud(cloud_ptr_);
+        pcl::KdTreeFLANN<pcl::PointXYZRGBA> kdtree;
+        kdtree.setInputCloud(cloud_ptr_);
 
-    // K nearest neighbor search
-    std::vector<int> pointIdxNKNSearch(1);
-    std::vector<float> pointNKNSquaredDistance(1);
-    if(kdtree.nearestKSearch (leftSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
-    {
-        cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
-        cv::circle(rgb_, circleCenter, 10, cv::Scalar(255, 0, 0), 3);
-    }
-    pointIdxNKNSearch.clear();
-    pointNKNSquaredDistance.clear();
+        // K nearest neighbor search
+        std::vector<int> pointIdxNKNSearch(1);
+        std::vector<float> pointNKNSquaredDistance(1);
+        if(kdtree.nearestKSearch (leftSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
+        {
+            cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
+            cv::circle(rgb_, circleCenter, 10, cv::Scalar(255, 0, 0), 3);
+        }
+        pointIdxNKNSearch.clear();
+        pointNKNSquaredDistance.clear();
 
-    if(kdtree.nearestKSearch (rightSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
-    {
-        cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
-        cv::circle(rgb_, circleCenter, 10, cv::Scalar(0, 255, 0), 3);
-    }
-*/
+        if(kdtree.nearestKSearch (rightSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
+        {
+            cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
+            cv::circle(rgb_, circleCenter, 10, cv::Scalar(0, 255, 0), 3);
+        }
+    */
 
-    //THE NICE WAY 
+    //THE NICE WAY
     cv::Point leftSepInImage =  projection(separatorPoseInImage_);
+
     cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
-outInfo("Left Sep image coords: "<<lefSepInImage);
-outInfo("Right Sep image coords: "<<rightSepInImage);
+    if(leftSepInImage.y > camInfo_.height) leftSepInImage.y =  camInfo_.height - 2;
+    if(rightSepInImage.y > camInfo_.height) rightSepInImage.y =  camInfo_.height - 2;
+
+    outInfo("Left Sep image coords: " << leftSepInImage);
+    outInfo("Right Sep image coords: " << rightSepInImage);
     cv::circle(rgb_, leftSepInImage, 5, cv::Scalar(255, 255, 0), 3);
     cv::circle(rgb_, rightSepInImage, 5, cv::Scalar(0, 255, 255), 3);
 
