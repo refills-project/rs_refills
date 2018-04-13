@@ -213,7 +213,7 @@ public:
       minX = poseStamped.getOrigin().x() - width / 2;
       maxX = poseStamped.getOrigin().x() + width / 2;
 
-      minY = poseStamped.getOrigin().y()- 0.04;
+      minY = poseStamped.getOrigin().y() - 0.04;
       maxY = poseStamped.getOrigin().y() + 0.3;
 
       maxZ = poseStamped.getOrigin().z();
@@ -295,43 +295,42 @@ public:
         ++it;
     }
 
+    outInfo("Cluster Size after filtering:" << cluster_i.size());
     //if two clusters in the same y range
-    for(std::vector<pcl::PointIndices>::iterator it1 = cluster_i.begin();
-        it1 != cluster_i.end();)
+    std::vector<pcl::PointIndices> mergedClusterIndices;
+
+    for(int i = 0; i < cluster_i.size(); ++i)
     {
-      for(std::vector<pcl::PointIndices>::iterator it2 = cluster_i.begin();
-          it2 != cluster_i.end();)
+      Eigen::Vector4f c1;
+      pcl::compute3DCentroid(*cloudFiltered_, cluster_i[i], c1);
+      bool merged = false;
+      for(int j = 0; j < mergedClusterIndices; j++)
       {
-        if(it1 == it2)
-        {
-          it2++;
-          continue;
-        }
-        Eigen::Vector4f c1, c2;
-        pcl::compute3DCentroid(*cloudFiltered_, *it1, c1);
+        Eigen::Vector4f c2;
         pcl::compute3DCentroid(*cloudFiltered_, *it2, c2);
         if(std::abs(c1[1] - c2[1]) < obj_depth)
         {
-          for(auto idx : it2->indices)
-            it1->indices.push_back(idx);
-          it2 = cluster_i.erase(it2);
+            mergedClusterIndices[j].indices.insert(mergedClusterIndices[j].indices.end(),
+                                                   cluster_i.indices.begin(),
+                                                   cluster_i.indices.end());
+            merged = true;
+            break;
         }
-        else it2++;
       }
-      it1++;
+      if (!merged)
+          mergedClusterIndices.push_back(cluster_i[i]);
     }
 
-
-    outInfo("Found " << cluster_i.size() << " good clusters!");
+    outInfo("Found " << mergedClusterIndices.size() << " good clusters after filtering and merging!");
 
     float gminX = std::numeric_limits<float>::max(),
           gminZ = std::numeric_limits<float>::max(),
           gmaxX = std::numeric_limits<float>::min(),
           gmaxZ = std::numeric_limits<float>::min();
-    for(int i = 0; i < cluster_i.size(); ++i)
+    for(int i = 0; i < mergedClusterIndices.size(); ++i)
     {
       Eigen::Vector4f  min, max;
-      pcl::getMinMax3D(*cloudFiltered_, cluster_i[i].indices, min, max);
+      pcl::getMinMax3D(*cloudFiltered_, mergedClusterIndices[i].indices, min, max);
       float pdepth = std::abs(min[1] - max[1]);
       int count = round(pdepth / obj_depth);
 
@@ -351,7 +350,7 @@ public:
         bb.maxPt.y = max[1];
         bb.minPt.y = min[1];
         cluster_boxes.push_back(bb);
-        cluster_indices_.push_back(cluster_i[i]);
+        cluster_indices_.push_back(mergedClusterIndices[i]);
       }
       else
       {
@@ -367,7 +366,7 @@ public:
           cluster_boxes.push_back(bb);
           pcl::PassThrough<pcl::PointXYZRGBA> pass;
           pass.setInputCloud(cloudFiltered_);
-          pass.setIndices(boost::make_shared<pcl::PointIndices>(cluster_i[i]));
+          pass.setIndices(boost::make_shared<pcl::PointIndices>(mergedClusterIndices[i]));
           pass.setFilterFieldName("y");//
           pass.setFilterLimits(minY, maxY); //full depth of four layered shelf
           pass.filter(newIndices.indices);
