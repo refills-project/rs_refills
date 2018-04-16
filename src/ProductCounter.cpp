@@ -304,15 +304,15 @@ public:
       Eigen::Vector4f c1;
       pcl::compute3DCentroid(*cloudFiltered_, cluster_i[i], c1);
       bool merged = false;
-      for(int j = 0; j < mergedClusterIndices; j++)
+      for(int j = 0; j < mergedClusterIndices.size(); j++)
       {
         Eigen::Vector4f c2;
-        pcl::compute3DCentroid(*cloudFiltered_, *it2, c2);
+        pcl::compute3DCentroid(*cloudFiltered_, mergedClusterIndices[j], c2);
         if(std::abs(c1[1] - c2[1]) < obj_depth)
         {
             mergedClusterIndices[j].indices.insert(mergedClusterIndices[j].indices.end(),
-                                                   cluster_i.indices.begin(),
-                                                   cluster_i.indices.end());
+                                                   cluster_i[i].indices.begin(),
+                                                   cluster_i[i].indices.end());
             merged = true;
             break;
         }
