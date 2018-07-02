@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(rs_refills)
-find_package(catkin REQUIRED robosherlock rs_queryanswering)
+find_package(catkin REQUIRED robosherlock refills_msgs json_prolog) 
 find_package(PCL 1.8 REQUIRED)
+
+#need to add this so RSProcessManager from RoboSherlock has QueryInterface
+add_definitions(-DWITH_JSON_PROLOG)
+
 ################################################################################
 ## Constants for project                                                      ##
 ################################################################################
@@ -42,9 +46,9 @@ include_directories(
 ## Update analysis engines, typesystem and include all relevant files         ##
 ################################################################################
 ##Update xml list of annotators inside analysis engines
-update_analysis_engines(robosherlock rs_queryanswering)
+update_analysis_engines(robosherlock)
 ## generate classes from the typesystem xml files
-generate_type_system(robosherlock rs_queryanswering)
+generate_type_system(robosherlock)
 #find all relevant files
 find_additional_files()
 ################################################################################

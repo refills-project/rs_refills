@@ -38,7 +38,7 @@
 #include "uima/internal_aggregate_engine.hpp"
 #include "uima/annotator_mgr.hpp"
 
-#include <rs_queryanswering/RSProcessManager.h>
+#include <rs/flowcontrol/RSProcessManager.h>
 
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -54,7 +54,7 @@
 class RSRefillsProcessManager: public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh)
+  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh,".")
   {
 
   }
@@ -176,9 +176,9 @@ int main(int argc, char *argv[])
   {
     RSRefillsProcessManager manager(useVisualizer, waitForServiceCall, nh);
     manager.setUseIdentityResolution(false);
-    manager.setUseJsonPrologInterface(true);
+        
     manager.pause();
-    manager.init(analysisEngineFile, configFile);
+    manager.init(analysisEngineFile, configFile,false);
     manager.run();
     manager.stop();
   }
