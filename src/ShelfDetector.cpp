@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <thread>
+#include <mutex>
 
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
@@ -34,6 +36,11 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
 
+#include <refills_msgs/Barcode.h>
+#include <refills_msgs/SeparatorArray.h>
+
+
+
 using namespace uima;
 
 /**
@@ -49,22 +56,32 @@ using namespace uima;
  */
 class ShelfDetector : public DrawingAnnotator
 {
+
+public:
+  //ROS interface related members
   ros::NodeHandle nh_;
+  tf::StampedTransform camToWorld_;
+  sensor_msgs::CameraInfo camInfo_;
+  tf::TransformListener *listener;
+  ros::Subscriber barcodeSubscriber_;
+  ros::Subscriber separatorSubscriber_;
+
+
+  //RoboSherlock related conatiners of raw data
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered_;
   pcl::PointCloud<pcl::Normal>::Ptr normals_;
+  cv::Mat mask_, rgb_, disp_, bin_, grey_;
 
+  //algorithm related members
   std::vector<pcl::PointIndices> label_indices_;
   std::vector<pcl::PointIndicesPtr> line_inliers_;
-
   std::vector<Eigen::VectorXf> line_models_;
 
   int min_line_inliers_;
   float max_variance_;
 
-  tf::StampedTransform camToWorld_;
-
-  sensor_msgs::CameraInfo camInfo_;
+  std::mutex lockBarcode_, lockSeparator_;
 
   struct Line
   {
@@ -75,12 +92,10 @@ class ShelfDetector : public DrawingAnnotator
 
   std::vector<Line> lines_;
 
-  cv::Mat mask_, rgb_, disp_, bin_, grey_;
+  std::vector<tf::Stamped<tf::Pose>> barcodePoses_;
+  std::vector<tf::Stamped<tf::Pose>> separatorPoses_;
 
-
-  tf::TransformListener *listener;
-
-  //visualization stuff
+  //visualization related members
   enum class DisplayMode
   {
     COLOR,
@@ -89,6 +104,7 @@ class ShelfDetector : public DrawingAnnotator
     GREY
   } dispMode;
 
+  //other
   std::string localFrameName_;
 public:
 
@@ -100,7 +116,38 @@ public:
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
 
+    barcodeSubscriber_ = nh_.subscribe("what is the topic name?", 50, &ShelfDetector::barcodeAggregator, this);
+    separatorSubscriber_ = nh_.subscribe("what is the topic name?", 50, &ShelfDetector::separatorAggregator, this);
+
     listener = new tf::TransformListener(nh_, ros::Duration(10.0));
+  }
+
+  void barcodeAggregator(const refills_msgs::BarcodePtr &msg)
+  {
+    tf::Stamped<tf::Pose> poseStamped;
+    tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
+    barcodePoses_.push_back(poseStamped);
+  }
+
+  void separatorAggregator(const refills_msgs::SeparatorArrayPtr &msg)
+  {
+    for(auto m : msg->separators)
+    {
+      tf::Stamped<tf::Pose> poseStamped;
+      tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
+      separatorPoses_.push_back(poseStamped);
+    }
+  }
+
+  void clear()
+  {
+    //this is an overkill here, but good to learn about RAII way
+    std::unique_lock<std::mutex> lk1(lockBarcode_, std::defer_lock);
+    std::unique_lock<std::mutex> lk2(lockSeparator_, std::defer_lock);
+    std::lock(lk1, lk2);
+
+    barcodePoses_.clear();
+    separatorPoses_.clear();
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
