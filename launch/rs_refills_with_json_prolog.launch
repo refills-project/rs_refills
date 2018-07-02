@@ -3,12 +3,11 @@
   <!-- launch json_prolog -->
 
 
-  <arg name="initial_package" default="rs_prolog_interface" />
+  <arg name="initial_package" default="robosherlock_knowrob" />
   <param name="initial_package" type="string" value="$(arg initial_package)" />
   <node name="json_prolog" pkg="json_prolog" type="json_prolog_node" cwd="node" output="screen" />
 
   <!-- launch refills specific RoboSherlock -->
-  <arg name="wait" default="false" />
   <node name="RoboSherlock" pkg="rs_refills" type="processing_engine" output="screen">
     <param name="ae" type="string" value="refills"/>
   </node>
