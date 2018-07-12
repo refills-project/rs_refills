@@ -7,6 +7,8 @@
 
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
+#include <tf/tf.h>
+
 
 #include <pcl/point_types.h>
 
@@ -21,11 +23,15 @@
 #include <pcl/features/boundary.h>
 #include <pcl/features/organized_edge_detection.h>
 
+#include <pcl/io/pcd_io.h>
+
 #include <pcl/common/transforms.h>
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_line.h>
 #include <pcl/sample_consensus/sac_model_parallel_line.h>
 #include <pcl/ModelCoefficients.h>
+
+#include <pcl/segmentation/conditional_euclidean_clustering.h>
 
 #include <rs/types/all_types.h>
 #include <rs/scene_cas.h>
@@ -38,6 +44,8 @@
 
 #include <refills_msgs/Barcode.h>
 #include <refills_msgs/SeparatorArray.h>
+
+
 
 
 
@@ -54,6 +62,18 @@ using namespace uima;
  *   - number of inliers in a line needs be fairly big (depends on voxelizaiton param)
  *   - max height of a shelf_system can be 1.85
  */
+
+
+
+bool
+enforceZAxesSimilarity(const pcl::PointXYZRGBA &point_a, const pcl::PointXYZRGBA &point_b, float squared_distance)
+{
+  if(fabs(point_a.z - point_b.z) < 0.05f)
+    return (true);
+  else
+    return (false);
+}
+
 class ShelfDetector : public DrawingAnnotator
 {
 
@@ -68,7 +88,7 @@ public:
 
 
   //RoboSherlock related conatiners of raw data
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered_;
   pcl::PointCloud<pcl::Normal>::Ptr normals_;
   cv::Mat mask_, rgb_, disp_, bin_, grey_;
@@ -95,6 +115,8 @@ public:
   std::vector<tf::Stamped<tf::Pose>> barcodePoses_;
   std::vector<tf::Stamped<tf::Pose>> separatorPoses_;
 
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr barcodePoints_, separatorPoints_, dispCloud_;
+
   //visualization related members
   enum class DisplayMode
   {
@@ -108,34 +130,62 @@ public:
   std::string localFrameName_;
 public:
 
-  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::EDGE)
+  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::COLOR)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_filtered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
-    normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
+    barcodePoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
-    barcodeSubscriber_ = nh_.subscribe("what is the topic name?", 50, &ShelfDetector::barcodeAggregator, this);
-    separatorSubscriber_ = nh_.subscribe("what is the topic name?", 50, &ShelfDetector::separatorAggregator, this);
+    normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
 
     listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
   void barcodeAggregator(const refills_msgs::BarcodePtr &msg)
   {
-    tf::Stamped<tf::Pose> poseStamped;
+    std::lock_guard<std::mutex> lock(lockBarcode_);
+    tf::Stamped<tf::Pose> poseStamped, poseBase;
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
-    barcodePoses_.push_back(poseStamped);
+    try
+    {
+      listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      pcl::PointXYZRGBA pt;
+      pt.x = poseBase.getOrigin().x();
+      pt.y = poseBase.getOrigin().y();
+      pt.z = poseBase.getOrigin().z();
+      barcodePoints_->points.push_back(pt);
+    }
+    catch(tf::TransformException ex)
+    {
+      outWarn(ex.what());
+    }
   }
 
   void separatorAggregator(const refills_msgs::SeparatorArrayPtr &msg)
   {
+    std::lock_guard<std::mutex> lock(lockSeparator_);
     for(auto m : msg->separators)
     {
-      tf::Stamped<tf::Pose> poseStamped;
+      tf::Stamped<tf::Pose> poseStamped, poseBase;
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
-      separatorPoses_.push_back(poseStamped);
+      try
+      {
+      listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+
+      pcl::PointXYZRGBA pt;
+      pt.x = poseBase.getOrigin().x();
+      pt.y = poseBase.getOrigin().y();
+      pt.z = poseBase.getOrigin().z();
+
+      separatorPoints_->points.push_back(pt);
+      }
+      catch(tf::TransformException ex)
+      {
+        outWarn(ex.what());
+      }
     }
   }
 
@@ -145,9 +195,10 @@ public:
     std::unique_lock<std::mutex> lk1(lockBarcode_, std::defer_lock);
     std::unique_lock<std::mutex> lk2(lockSeparator_, std::defer_lock);
     std::lock(lk1, lk2);
-
     barcodePoses_.clear();
     separatorPoses_.clear();
+    barcodePoints_->points.clear();
+    separatorPoints_->points.clear();
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -466,9 +517,59 @@ public:
       outInfo("SOR filter");
     }
 
-    *dispCloud_ = *cloud_filtered_;
+    //    *dispCloud_ = *cloud_filtered_;
   }
 
+
+
+  void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
+  {
+    outInfo("started clustering");
+    pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBA> cec(true);
+
+    cec.setInputCloud(cloud);
+    cec.setConditionFunction(&enforceZAxesSimilarity);
+    cec.setClusterTolerance(2.0);
+    cec.setMinClusterSize(cloud->points.size() / 10);
+    cec.setMaxClusterSize(cloud->points.size() / 2);
+    cec.segment(*clusters);
+    //    cec.getRemovedClusters(small_clusters, large_clusters);
+  }
+  void createResultsAndToCas(CAS &tcas,
+                             const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,
+                             const pcl::IndicesClustersPtr &clusters)
+  {
+    rs::SceneCas cas(tcas);
+    rs::Scene scene = cas.getScene();
+
+    int idx = 0;
+    for(auto c : *clusters)
+    {
+      rs::Cluster hyp = rs::create<rs::Cluster>(tcas);
+      rs::Detection detection = rs::create<rs::Detection>(tcas);
+
+      detection.source.set("ShelfDetector");
+      detection.name.set(std::to_string(idx++));
+
+      Eigen::Vector4f centroid;
+      pcl::compute3DCentroid(*cloud, c, centroid);
+
+      tf::Stamped<tf::Pose> pose;
+      pose.setOrigin(tf::Vector3(centroid[0],centroid[1],centroid[2]));
+      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
+      pose.frame_id_ = "base_link";
+      uint64_t ts = scene.timestamp();
+      pose.stamp_ = ros::Time().fromNSec(ts);
+      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
+      poseAnnotation.source.set("ShelfDetector");
+      poseAnnotation.world.set(rs::conversion::to(tcas, pose));
+      poseAnnotation.camera.set(rs::conversion::to(tcas, pose));
+
+      hyp.annotations.append(detection);
+      hyp.annotations.append(poseAnnotation);
+      scene.identifiables.append(hyp);
+    }
+  }
 
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
@@ -509,7 +610,14 @@ public:
           if(command == "stop")
           {
             outWarn("Clearing chache of line segments");
+            barcodeSubscriber_.shutdown();
+            separatorSubscriber_.shutdown();
             reset = true;
+          }
+          if(command == "start")
+          {
+            barcodeSubscriber_ = nh_.subscribe("/barcode/pose", 50, &ShelfDetector::barcodeAggregator, this);
+            separatorSubscriber_ = nh_.subscribe("/separator_marker_detector_node/data_out", 50, &ShelfDetector::separatorAggregator, this);
           }
         }
       }
@@ -517,7 +625,6 @@ public:
 
     if(!reset)
     {
-
       rs::Scene scene = cas.getScene();
       try
       {
@@ -536,25 +643,56 @@ public:
         outError(ex.what());
         return UIMA_ERR_NONE;
       }
-      Eigen::Affine3d eigenTransform;
-      tf::transformTFToEigen(camToWorld_, eigenTransform);
-      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+      //      Eigen::Affine3d eigenTransform;
+      //      tf::transformTFToEigen(camToWorld_, eigenTransform);
+      //      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
 
-      filterCloud(camToWorld_);
+      //      filterCloud(camToWorld_);
 
-      makeMaskedImage();
-      findLinesInImage();
-      findLinesInCloud();
+      //      makeMaskedImage();
+      //      findLinesInImage();
+      //      findLinesInCloud();
 
-      solveLineIds();
+      //      solveLineIds();
+      //      *dispCloud_ = *barcodePoints_;
+      *dispCloud_ = *separatorPoints_;
+
+      outInfo("barcodes found: :" << barcodePoints_->points.size());
+      outInfo("separators found: :" << separatorPoints_->points.size());
     }
 
     //always add to CAS
-    addToCas(tcas);
+    //addToCas(tcas);
 
-    //suboptimal but f. it
     if(reset)
     {
+      outInfo("STOP received!");
+      pcl::PointCloud<pcl::PointXYZRGBA>::Ptr concatCloud(new pcl::PointCloud<pcl::PointXYZRGBA>());
+      *concatCloud = *barcodePoints_;
+      *concatCloud += *separatorPoints_;
+      outInfo("Total points found: barcodes found: :" << concatCloud->points.size());
+      concatCloud->height = 1;
+      concatCloud->width = concatCloud->points.size();
+
+      pcl::IndicesClustersPtr clusters(new pcl::IndicesClusters);
+      clusterPoints(concatCloud, clusters);
+      createResultsAndToCas(tcas, concatCloud, clusters);
+      *dispCloud_ = *concatCloud;
+
+
+      outInfo("Clusters found:" << clusters->size());
+      for(int i = 0; i < clusters->size(); ++i)
+      {
+        outInfo((*clusters)[i].indices.size());
+        for(int j = 0; j < (*clusters)[i].indices.size(); ++j)
+        {
+          dispCloud_->points[(*clusters)[i].indices[j]].rgba = rs::common::colors[i % clusters->size()];
+        }
+      }
+
+      pcl::io::savePCDFileASCII("newcloud.pcd", *dispCloud_);
+
+      clear();
       lines_.clear();
       localFrameName_ = "";
     }
@@ -603,7 +741,6 @@ public:
       visualizer.addLine(line.pt_begin, line.pt_end, lineName.str());
       visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 4.0, lineName.str());
       visualizer.setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1.0, 0.0, 0.0, lineName.str());
-
     }
 
     if(firstRun)

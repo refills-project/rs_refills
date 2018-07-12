@@ -66,10 +66,11 @@ public:
     queryInterface->parseQuery(req);
     std::vector<std::string> newPipelineOrder;
     QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
-
+    for(auto p:newPipelineOrder) outInfo(p);
     //these are hacks that should be handled by integration of these components in the pipeline planning process
     if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
+      outInfo("");
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
 //      newPipelineOrder.push_back("RegionFilter");
