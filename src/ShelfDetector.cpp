@@ -66,7 +66,7 @@ using namespace uima;
 
 
 bool
-enforceZAxesSimilarity(const pcl::PointXYZRGBA &point_a, const pcl::PointXYZRGBA &point_b, float squared_distance)
+enforceZAxesSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
 {
   if(fabs(point_a.z - point_b.z) < 0.05f)
     return (true);
@@ -88,7 +88,7 @@ public:
 
 
   //RoboSherlock related conatiners of raw data
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_,dispCloud_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered_;
   pcl::PointCloud<pcl::Normal>::Ptr normals_;
   cv::Mat mask_, rgb_, disp_, bin_, grey_;
@@ -115,7 +115,7 @@ public:
   std::vector<tf::Stamped<tf::Pose>> barcodePoses_;
   std::vector<tf::Stamped<tf::Pose>> separatorPoses_;
 
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr barcodePoints_, separatorPoints_, dispCloud_;
+  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr barcodePoints_, separatorPoints_;
 
   //visualization related members
   enum class DisplayMode
@@ -136,8 +136,8 @@ public:
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_filtered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
-    barcodePoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
-    separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    barcodePoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
+    separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
 
@@ -152,10 +152,11 @@ public:
     try
     {
       listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
-      pcl::PointXYZRGBA pt;
+      pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
       pt.z = poseBase.getOrigin().z();
+      pt.label = 1;
       barcodePoints_->points.push_back(pt);
     }
     catch(tf::TransformException ex)
@@ -175,11 +176,11 @@ public:
       {
       listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
-      pcl::PointXYZRGBA pt;
+      pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
       pt.z = poseBase.getOrigin().z();
-
+      pt.label = 0;
       separatorPoints_->points.push_back(pt);
       }
       catch(tf::TransformException ex)
@@ -522,10 +523,10 @@ public:
 
 
 
-  void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
+  void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
   {
     outInfo("started clustering");
-    pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBA> cec(true);
+    pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBL> cec(true);
 
     cec.setInputCloud(cloud);
     cec.setConditionFunction(&enforceZAxesSimilarity);
@@ -536,7 +537,7 @@ public:
     //    cec.getRemovedClusters(small_clusters, large_clusters);
   }
   void createResultsAndToCas(CAS &tcas,
-                             const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,
+                             const pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,
                              const pcl::IndicesClustersPtr &clusters)
   {
     rs::SceneCas cas(tcas);
@@ -549,7 +550,7 @@ public:
       rs::Detection detection = rs::create<rs::Detection>(tcas);
 
       detection.source.set("ShelfDetector");
-      detection.name.set(std::to_string(idx++));
+
 
       Eigen::Vector4f centroid;
       pcl::compute3DCentroid(*cloud, c, centroid);
@@ -559,6 +560,18 @@ public:
       pose.setRotation(tf::Quaternion(0, 0, 0, 1));
       pose.frame_id_ = "base_link";
       uint64_t ts = scene.timestamp();
+
+      std::string layertype="hanging";
+      std::for_each(c.indices.begin(), c.indices.end(), [&layertype, &cloud](int n)
+      {
+        if(cloud->points[n].label == 1)
+        {
+          layertype = "normal";
+          //this is dangerous...there could be a shelf where we don't see any separators...
+        }
+      });
+
+      detection.name.set(layertype+"#"+std::to_string(idx++));
       pose.stamp_ = ros::Time().fromNSec(ts);
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       poseAnnotation.source.set("ShelfDetector");
@@ -655,7 +668,7 @@ public:
 
       //      solveLineIds();
       //      *dispCloud_ = *barcodePoints_;
-      *dispCloud_ = *separatorPoints_;
+//      *dispCloud_ = *separatorPoints_;
 
       outInfo("barcodes found: :" << barcodePoints_->points.size());
       outInfo("separators found: :" << separatorPoints_->points.size());
@@ -667,30 +680,31 @@ public:
     if(reset)
     {
       outInfo("STOP received!");
-      pcl::PointCloud<pcl::PointXYZRGBA>::Ptr concatCloud(new pcl::PointCloud<pcl::PointXYZRGBA>());
+      pcl::PointCloud<pcl::PointXYZRGBL>::Ptr concatCloud(new pcl::PointCloud<pcl::PointXYZRGBL>());
       *concatCloud = *barcodePoints_;
       *concatCloud += *separatorPoints_;
-      outInfo("Total points found: barcodes found: :" << concatCloud->points.size());
       concatCloud->height = 1;
       concatCloud->width = concatCloud->points.size();
 
       pcl::IndicesClustersPtr clusters(new pcl::IndicesClusters);
       clusterPoints(concatCloud, clusters);
       createResultsAndToCas(tcas, concatCloud, clusters);
-      *dispCloud_ = *concatCloud;
 
+
+      //TODO: create display cloud
+      //      *dispCloud_ = *concatCloud;
 
       outInfo("Clusters found:" << clusters->size());
-      for(int i = 0; i < clusters->size(); ++i)
-      {
-        outInfo((*clusters)[i].indices.size());
-        for(int j = 0; j < (*clusters)[i].indices.size(); ++j)
-        {
-          dispCloud_->points[(*clusters)[i].indices[j]].rgba = rs::common::colors[i % clusters->size()];
-        }
-      }
+//      for(int i = 0; i < clusters->size(); ++i)
+//      {
+//        outInfo((*clusters)[i].indices.size());
+//        for(int j = 0; j < (*clusters)[i].indices.size(); ++j)
+//        {
 
-      pcl::io::savePCDFileASCII("newcloud.pcd", *dispCloud_);
+//          dispCloud_->points[(*clusters)[i].indices[j]].rgba = rs::common::colors[i % clusters->size()];
+//        }
+//      }
+//      pcl::io::savePCDFileASCII("newcloud.pcd", *dispCloud_);
 
       clear();
       lines_.clear();
