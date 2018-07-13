@@ -65,15 +65,6 @@ using namespace uima;
 
 
 
-bool
-enforceZAxesSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
-{
-  if(fabs(point_a.z - point_b.z) < 0.05f)
-    return (true);
-  else
-    return (false);
-}
-
 class ShelfDetector : public DrawingAnnotator
 {
 
@@ -144,6 +135,21 @@ public:
     listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
+  TyErrorId initialize(AnnotatorContext &ctx)
+  {
+    outInfo("initialize");
+    ctx.extractValue("min_line_inliers", min_line_inliers_);
+    ctx.extractValue("max_variance", max_variance_);
+    setAnnotatorContext(ctx);
+    return UIMA_ERR_NONE;
+  }
+
+  TyErrorId destroy()
+  {
+    outInfo("destroy");
+    return UIMA_ERR_NONE;
+  }
+
   void barcodeAggregator(const refills_msgs::BarcodePtr &msg)
   {
     std::lock_guard<std::mutex> lock(lockBarcode_);
@@ -151,7 +157,7 @@ public:
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
     try
     {
-      listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
@@ -174,7 +180,7 @@ public:
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
       try
       {
-      listener->transformPose("base_link", poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
@@ -202,20 +208,6 @@ public:
     separatorPoints_->points.clear();
   }
 
-  TyErrorId initialize(AnnotatorContext &ctx)
-  {
-    outInfo("initialize");
-    ctx.extractValue("min_line_inliers", min_line_inliers_);
-    ctx.extractValue("max_variance", max_variance_);
-    setAnnotatorContext(ctx);
-    return UIMA_ERR_NONE;
-  }
-
-  TyErrorId destroy()
-  {
-    outInfo("destroy");
-    return UIMA_ERR_NONE;
-  }
 
   void projectPointOnPlane(pcl::PointXYZRGBA &pt, const std::vector<float> &plane_model)
   {
@@ -521,7 +513,13 @@ public:
     //    *dispCloud_ = *cloud_filtered_;
   }
 
-
+  bool enforceZAxesSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
+  {
+    if(fabs(point_a.z - point_b.z) < 0.05f)
+      return (true);
+    else
+      return (false);
+  }
 
   void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
   {
@@ -529,13 +527,14 @@ public:
     pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBL> cec(true);
 
     cec.setInputCloud(cloud);
-    cec.setConditionFunction(&enforceZAxesSimilarity);
+    cec.setConditionFunction(boost::bind(&ShelfDetector::enforceZAxesSimilarity,this,_1,_2,_3));
     cec.setClusterTolerance(2.0);
     cec.setMinClusterSize(cloud->points.size() / 10);
     cec.setMaxClusterSize(cloud->points.size() / 2);
     cec.segment(*clusters);
-    //    cec.getRemovedClusters(small_clusters, large_clusters);
+    //cec.getRemovedClusters(small_clusters, large_clusters);
   }
+
   void createResultsAndToCas(CAS &tcas,
                              const pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,
                              const pcl::IndicesClustersPtr &clusters)
@@ -558,7 +557,7 @@ public:
       tf::Stamped<tf::Pose> pose;
       pose.setOrigin(tf::Vector3(centroid[0],centroid[1],centroid[2]));
       pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-      pose.frame_id_ = "base_link";
+      pose.frame_id_ = localFrameName_;
       uint64_t ts = scene.timestamp();
 
       std::string layertype="hanging";
@@ -667,8 +666,6 @@ public:
       //      findLinesInCloud();
 
       //      solveLineIds();
-      //      *dispCloud_ = *barcodePoints_;
-//      *dispCloud_ = *separatorPoints_;
 
       outInfo("barcodes found: :" << barcodePoints_->points.size());
       outInfo("separators found: :" << separatorPoints_->points.size());
@@ -690,21 +687,22 @@ public:
       clusterPoints(concatCloud, clusters);
       createResultsAndToCas(tcas, concatCloud, clusters);
 
-
-      //TODO: create display cloud
-      //      *dispCloud_ = *concatCloud;
+      for (auto p : concatCloud->points)
+      {
+        pcl::PointXYZRGBA pt;
+        pt.x = p.x; pt.y =p.y; pt.z = p.z;
+        dispCloud_->points.push_back(pt);
+      }
 
       outInfo("Clusters found:" << clusters->size());
-//      for(int i = 0; i < clusters->size(); ++i)
-//      {
-//        outInfo((*clusters)[i].indices.size());
-//        for(int j = 0; j < (*clusters)[i].indices.size(); ++j)
-//        {
-
-//          dispCloud_->points[(*clusters)[i].indices[j]].rgba = rs::common::colors[i % clusters->size()];
-//        }
-//      }
-//      pcl::io::savePCDFileASCII("newcloud.pcd", *dispCloud_);
+      for(int i = 0; i < clusters->size(); ++i)
+      {
+        outInfo((*clusters)[i].indices.size());
+        for(int j = 0; j < (*clusters)[i].indices.size(); ++j)
+        {
+          dispCloud_->points[(*clusters)[i].indices[j]].rgba = rs::common::colors[i % clusters->size()];
+        }
+      }
 
       clear();
       lines_.clear();
