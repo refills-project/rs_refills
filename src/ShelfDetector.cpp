@@ -591,7 +591,7 @@ public:
     line_inliers_.clear();
 
     rs::SceneCas cas(tcas);
-    //    cas.get(VIEW_CLOUD, *cloud_);
+    cas.get(VIEW_CLOUD, *cloud_);
     //    cas.get(VIEW_NORMALS, *normals_);
     cas.get(VIEW_COLOR_IMAGE, rgb_);
     cas.get(VIEW_CAMERA_INFO, camInfo_);
@@ -615,7 +615,7 @@ public:
             localFrameName_ = jsonQuery["scan"]["location"].GetString();
           if(jsonQuery["scan"].HasMember("type"))
           {
-            std::string objType = jsonQuery["scan"]["location"].GetString();
+            std::string objType = jsonQuery["scan"]["type"].GetString();
             if (!boost::iequals(objType,"shelf")){
                 outInfo("Asking to scan an object that is not a shelf. Returning;");
                 return UIMA_ERR_NONE;
@@ -696,6 +696,7 @@ public:
       clusterPoints(concatCloud, clusters);
       createResultsAndToCas(tcas, concatCloud, clusters);
 
+      dispCloud_->points.clear();
       for(auto p : concatCloud->points)
       {
         pcl::PointXYZRGBA pt;
