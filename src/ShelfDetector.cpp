@@ -79,7 +79,7 @@ public:
 
 
   //RoboSherlock related conatiners of raw data
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_,dispCloud_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered_;
   pcl::PointCloud<pcl::Normal>::Ptr normals_;
   cv::Mat mask_, rgb_, disp_, bin_, grey_;
@@ -180,14 +180,14 @@ public:
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
       try
       {
-      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+        listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
-      pcl::PointXYZRGBL pt;
-      pt.x = poseBase.getOrigin().x();
-      pt.y = poseBase.getOrigin().y();
-      pt.z = poseBase.getOrigin().z();
-      pt.label = 0;
-      separatorPoints_->points.push_back(pt);
+        pcl::PointXYZRGBL pt;
+        pt.x = poseBase.getOrigin().x();
+        pt.y = poseBase.getOrigin().y();
+        pt.z = poseBase.getOrigin().z();
+        pt.label = 0;
+        separatorPoints_->points.push_back(pt);
       }
       catch(tf::TransformException ex)
       {
@@ -527,7 +527,7 @@ public:
     pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBL> cec(true);
 
     cec.setInputCloud(cloud);
-    cec.setConditionFunction(boost::bind(&ShelfDetector::enforceZAxesSimilarity,this,_1,_2,_3));
+    cec.setConditionFunction(boost::bind(&ShelfDetector::enforceZAxesSimilarity, this, _1, _2, _3));
     cec.setClusterTolerance(2.0);
     cec.setMinClusterSize(cloud->points.size() / 10);
     cec.setMaxClusterSize(cloud->points.size() / 2);
@@ -555,12 +555,12 @@ public:
       pcl::compute3DCentroid(*cloud, c, centroid);
 
       tf::Stamped<tf::Pose> pose;
-      pose.setOrigin(tf::Vector3(centroid[0],centroid[1],centroid[2]));
+      pose.setOrigin(tf::Vector3(centroid[0], centroid[1], centroid[2]));
       pose.setRotation(tf::Quaternion(0, 0, 0, 1));
       pose.frame_id_ = localFrameName_;
       uint64_t ts = scene.timestamp();
 
-      std::string layertype="hanging";
+      std::string layertype = "hanging";
       std::for_each(c.indices.begin(), c.indices.end(), [&layertype, &cloud](int n)
       {
         if(cloud->points[n].label == 1)
@@ -570,7 +570,7 @@ public:
         }
       });
 
-      detection.name.set(layertype+"#"+std::to_string(idx++));
+      detection.name.set(layertype + "#" + std::to_string(idx++));
       pose.stamp_ = ros::Time().fromNSec(ts);
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       poseAnnotation.source.set("ShelfDetector");
@@ -591,15 +591,15 @@ public:
     line_inliers_.clear();
 
     rs::SceneCas cas(tcas);
-    cas.get(VIEW_CLOUD, *cloud_);
-    cas.get(VIEW_NORMALS, *normals_);
+    //    cas.get(VIEW_CLOUD, *cloud_);
+    //    cas.get(VIEW_NORMALS, *normals_);
     cas.get(VIEW_COLOR_IMAGE, rgb_);
     cas.get(VIEW_CAMERA_INFO, camInfo_);
 
     std::string queryAsString = "";
     rs::Query query = rs::create<rs::Query>(tcas);
 
-
+    //see if query has what we want;
     bool reset = false;
     if(cas.getFS("QUERY", query))
     {
@@ -612,9 +612,18 @@ public:
         if(jsonQuery.HasMember("scan"))
         {
           if(jsonQuery["scan"].HasMember("location"))
-          {
             localFrameName_ = jsonQuery["scan"]["location"].GetString();
+          if(jsonQuery["scan"].HasMember("type"))
+          {
+            std::string objType = jsonQuery["scan"]["location"].GetString();
+            if (!boost::iequals(objType,"shelf")){
+                outInfo("Asking to scan an object that is not a shelf. Returning;");
+                return UIMA_ERR_NONE;
+            }
           }
+          else
+              return UIMA_ERR_NONE;
+
         }
         if(jsonQuery["scan"].HasMember("command"))
         {
@@ -637,24 +646,24 @@ public:
 
     if(!reset)
     {
-      rs::Scene scene = cas.getScene();
-      try
-      {
-        if(localFrameName_ == "map")
-        {
-          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-        }
-        else
-        {
-          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
-          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
-        }
-      }
-      catch(tf::TransformException &ex)
-      {
-        outError(ex.what());
-        return UIMA_ERR_NONE;
-      }
+//      rs::Scene scene = cas.getScene();
+//      try
+//      {
+//        if(localFrameName_ == "map")
+//        {
+//          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+//        }
+//        else
+//        {
+//          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
+//          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
+//        }
+//      }
+//      catch(tf::TransformException &ex)
+//      {
+//        outError(ex.what());
+//        return UIMA_ERR_NONE;
+//      }
       //      Eigen::Affine3d eigenTransform;
       //      tf::transformTFToEigen(camToWorld_, eigenTransform);
       //      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
@@ -687,10 +696,12 @@ public:
       clusterPoints(concatCloud, clusters);
       createResultsAndToCas(tcas, concatCloud, clusters);
 
-      for (auto p : concatCloud->points)
+      for(auto p : concatCloud->points)
       {
         pcl::PointXYZRGBA pt;
-        pt.x = p.x; pt.y =p.y; pt.z = p.z;
+        pt.x = p.x;
+        pt.y = p.y;
+        pt.z = p.z;
         dispCloud_->points.push_back(pt);
       }
 
