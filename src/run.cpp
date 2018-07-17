@@ -71,10 +71,10 @@ public:
     if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
       outInfo("");
-      newPipelineOrder.push_back("CollectionReader");
-      newPipelineOrder.push_back("ImagePreprocessor");
+     newPipelineOrder.push_back("CollectionReader");
+     newPipelineOrder.push_back("ImagePreprocessor");
 //      newPipelineOrder.push_back("RegionFilter");
-      newPipelineOrder.push_back("NormalEstimator");
+      //newPipelineOrder.push_back("NormalEstimator");
       newPipelineOrder.push_back("ShelfDetector");
     }
     if(queryType == QueryInterface::QueryType::DETECT)

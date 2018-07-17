@@ -560,17 +560,25 @@ public:
       pose.frame_id_ = localFrameName_;
       uint64_t ts = scene.timestamp();
 
-      std::string layertype = "hanging";
-      std::for_each(c.indices.begin(), c.indices.end(), [&layertype, &cloud](int n)
+
+      int bCount = 0, sCount = 0 ;
+      std::for_each(c.indices.begin(), c.indices.end(), [&cloud, &bCount, &sCount](int n)
       {
         if(cloud->points[n].label == 1)
         {
-          layertype = "normal";
+          bCount++;
           //this is dangerous...there could be a shelf where we don't see any separators...
         }
+        else
+          sCount++;
       });
 
-      detection.name.set(layertype + "#" + std::to_string(idx++));
+      std::string layerType = "standing";
+      if(sCount==0 || (sCount!=0 && bCount!=0 && (float)sCount/(float)bCount < 0.05 ))
+          layerType="rack";
+
+      outInfo("Cluster has " << bCount << " barcodes " << sCount << " separators");
+      detection.name.set(layerType + "#" + std::to_string(idx++));
       pose.stamp_ = ros::Time().fromNSec(ts);
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       poseAnnotation.source.set("ShelfDetector");
@@ -616,13 +624,14 @@ public:
           if(jsonQuery["scan"].HasMember("type"))
           {
             std::string objType = jsonQuery["scan"]["type"].GetString();
-            if (!boost::iequals(objType,"shelf")){
-                outInfo("Asking to scan an object that is not a shelf. Returning;");
-                return UIMA_ERR_NONE;
+            if(!boost::iequals(objType, "shelf"))
+            {
+              outInfo("Asking to scan an object that is not a shelf. Returning;");
+              return UIMA_ERR_NONE;
             }
           }
           else
-              return UIMA_ERR_NONE;
+            return UIMA_ERR_NONE;
 
         }
         if(jsonQuery["scan"].HasMember("command"))
@@ -644,41 +653,41 @@ public:
       }
     }
 
-    if(!reset)
+    //    if(!reset)
+    //    {
+    rs::Scene scene = cas.getScene();
+    try
     {
-//      rs::Scene scene = cas.getScene();
-//      try
-//      {
-//        if(localFrameName_ == "map")
-//        {
-//          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-//        }
-//        else
-//        {
-//          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
-//          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
-//        }
-//      }
-//      catch(tf::TransformException &ex)
-//      {
-//        outError(ex.what());
-//        return UIMA_ERR_NONE;
-//      }
-      //      Eigen::Affine3d eigenTransform;
-      //      tf::transformTFToEigen(camToWorld_, eigenTransform);
-      //      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
-
-      //      filterCloud(camToWorld_);
-
-      //      makeMaskedImage();
-      //      findLinesInImage();
-      //      findLinesInCloud();
-
-      //      solveLineIds();
-
-      outInfo("barcodes found: :" << barcodePoints_->points.size());
-      outInfo("separators found: :" << separatorPoints_->points.size());
+      if(localFrameName_ == "map")
+      {
+        rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+      }
+      else
+      {
+        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
+        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
+      }
     }
+    catch(tf::TransformException &ex)
+    {
+      outError(ex.what());
+      return UIMA_ERR_NONE;
+    }
+    Eigen::Affine3d eigenTransform;
+    tf::transformTFToEigen(camToWorld_, eigenTransform);
+    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
+
+    filterCloud(camToWorld_);
+
+    //      makeMaskedImage();
+    //      findLinesInImage();
+    //      findLinesInCloud();
+
+    //      solveLineIds();
+
+    outInfo("barcodes found: :" << barcodePoints_->points.size());
+    outInfo("separators found: :" << separatorPoints_->points.size());
+    //    }
 
     //always add to CAS
     //addToCas(tcas);
@@ -770,7 +779,7 @@ public:
     if(firstRun)
     {
       visualizer.addPointCloud(dispCloud_, "original_filtered");
-      visualizer.addPointCloud(cloud_filtered_, cloudname);
+      visualizer.addPointCloud(cloud_, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original_filtered");
     }
@@ -778,7 +787,7 @@ public:
     {
 
       visualizer.updatePointCloud(dispCloud_, "original_filtered");
-      visualizer.updatePointCloud(cloud_filtered_, cloudname);//this is very filtered: boundary cloud
+      visualizer.updatePointCloud(cloud_, cloudname);//this is very filtered: boundary cloud
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize2, "original_filtered");
     }
