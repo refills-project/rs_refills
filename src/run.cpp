@@ -54,7 +54,7 @@
 class RSRefillsProcessManager: public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh,".")
+  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh, ".")
   {
 
   }
@@ -66,16 +66,39 @@ public:
     queryInterface->parseQuery(req);
     std::vector<std::string> newPipelineOrder;
     QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
-    for(auto p:newPipelineOrder) outInfo(p);
+    for(auto p : newPipelineOrder) outInfo(p);
     //these are hacks that should be handled by integration of these components in the pipeline planning process
     if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
       outInfo("");
-      newPipelineOrder.push_back("CollectionReader");
-      newPipelineOrder.push_back("ImagePreprocessor");
-//      newPipelineOrder.push_back("RegionFilter");
-      newPipelineOrder.push_back("NormalEstimator");
-      newPipelineOrder.push_back("ShelfDetector");
+      rapidjson::Value &val = queryInterface->query["scan"];
+      if(val.HasMember("type"))
+      {
+        std::string  type = val["type"].GetString();
+
+        //TODO: this whole part should move to knowrob pipeline planni
+        if(type == "shlef")
+        {
+          newPipelineOrder.push_back("CollectionReader");
+          newPipelineOrder.push_back("ImagePreprocessor");
+          newPipelineOrder.push_back("NormalEstimator");
+          newPipelineOrder.push_back("ShelfDetector");
+        }
+        if(type == "barcode")
+        {
+          newPipelineOrder.push_back("CollectionReader");
+          newPipelineOrder.push_back("ImagePreprocessor");
+          newPipelineOrder.push_back("NormalEstimator");
+          newPipelineOrder.push_back("BarcodeScanner");
+        }
+        if(type == "separator")
+        {
+          newPipelineOrder.push_back("CollectionReader");
+          newPipelineOrder.push_back("ImagePreprocessor");
+          newPipelineOrder.push_back("NormalEstimator");
+          newPipelineOrder.push_back("SeparatorScanner");
+        }
+      }
     }
     if(queryType == QueryInterface::QueryType::DETECT)
     {
@@ -85,6 +108,7 @@ public:
       newPipelineOrder.push_back("NormalEstimator");
       newPipelineOrder.push_back("ProductCounter");
     }
+
     processing_mutex_.lock();
     if(queryType == QueryInterface::QueryType::SCAN)
     {
@@ -111,11 +135,11 @@ public:
     }
     else if(queryType == QueryInterface::QueryType::DETECT)
     {
-//       rapidjson::Value &val = queryInterface->query["count"];
-       engine_.setQuery(req);
-       engine_.process(newPipelineOrder, true, res, req);
-       processing_mutex_.unlock();
-       return true;
+      //       rapidjson::Value &val = queryInterface->query["count"];
+      engine_.setQuery(req);
+      engine_.process(newPipelineOrder, true, res, req);
+      processing_mutex_.unlock();
+      return true;
     }
     else
     {
@@ -177,9 +201,9 @@ int main(int argc, char *argv[])
   {
     RSRefillsProcessManager manager(useVisualizer, waitForServiceCall, nh);
     manager.setUseIdentityResolution(false);
-        
+
     manager.pause();
-    manager.init(analysisEngineFile, configFile,false);
+    manager.init(analysisEngineFile, configFile, false);
     manager.run();
     manager.stop();
   }

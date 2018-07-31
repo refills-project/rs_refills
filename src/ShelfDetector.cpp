@@ -9,7 +9,6 @@
 #include <tf/transform_listener.h>
 #include <tf/tf.h>
 
-
 #include <pcl/point_types.h>
 
 #include <pcl/filters/filter.h>
@@ -616,13 +615,14 @@ public:
           if(jsonQuery["scan"].HasMember("type"))
           {
             std::string objType = jsonQuery["scan"]["type"].GetString();
-            if (!boost::iequals(objType,"shelf")){
-                outInfo("Asking to scan an object that is not a shelf. Returning;");
-                return UIMA_ERR_NONE;
+            if(!boost::iequals(objType, "shelf"))
+            {
+              outInfo("Asking to scan an object that is not a shelf. Returning;");
+              return UIMA_ERR_NONE;
             }
           }
           else
-              return UIMA_ERR_NONE;
+            return UIMA_ERR_NONE;
 
         }
         if(jsonQuery["scan"].HasMember("command"))
@@ -646,24 +646,24 @@ public:
 
     if(!reset)
     {
-//      rs::Scene scene = cas.getScene();
-//      try
-//      {
-//        if(localFrameName_ == "map")
-//        {
-//          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-//        }
-//        else
-//        {
-//          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
-//          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
-//        }
-//      }
-//      catch(tf::TransformException &ex)
-//      {
-//        outError(ex.what());
-//        return UIMA_ERR_NONE;
-//      }
+      //      rs::Scene scene = cas.getScene();
+      //      try
+      //      {
+      //        if(localFrameName_ == "map")
+      //        {
+      //          rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+      //        }
+      //        else
+      //        {
+      //          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ ros::Duration(2));
+      //          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0),/*camInfo_.header.stamp,*/ camToWorld_);
+      //        }
+      //      }
+      //      catch(tf::TransformException &ex)
+      //      {
+      //        outError(ex.what());
+      //        return UIMA_ERR_NONE;
+      //      }
       //      Eigen::Affine3d eigenTransform;
       //      tf::transformTFToEigen(camToWorld_, eigenTransform);
       //      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_, *cloud_, eigenTransform);
@@ -675,9 +675,6 @@ public:
       //      findLinesInCloud();
 
       //      solveLineIds();
-
-      outInfo("barcodes found: :" << barcodePoints_->points.size());
-      outInfo("separators found: :" << separatorPoints_->points.size());
     }
 
     //always add to CAS
@@ -720,6 +717,12 @@ public:
       lines_.clear();
       localFrameName_ = "";
     }
+    else
+    {
+        outInfo("barcodes found: :" << barcodePoints_->points.size());
+        outInfo("separators found: :" << separatorPoints_->points.size());
+    }
+
     return UIMA_ERR_NONE;
   }
 
