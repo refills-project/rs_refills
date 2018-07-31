@@ -70,7 +70,6 @@ public:
     //these are hacks that should be handled by integration of these components in the pipeline planning process
     if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
-      outInfo("");
       rapidjson::Value &val = queryInterface->query["scan"];
       if(val.HasMember("type"))
       {
