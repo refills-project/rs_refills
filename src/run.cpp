@@ -202,7 +202,7 @@ int main(int argc, char *argv[])
     manager.setUseIdentityResolution(false);
 
     manager.pause();
-    manager.init(analysisEngineFile, configFile, false);
+    manager.init(analysisEngineFile, configFile, false, false);
     manager.run();
     manager.stop();
   }

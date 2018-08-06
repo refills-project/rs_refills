@@ -19,7 +19,7 @@
 #include <pcl/segmentation/conditional_euclidean_clustering.h>
 
 
-#include <refills_msgs/SeparatorArray.h>
+#include <refills_msgs/Barcode.h>
 
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
@@ -37,11 +37,12 @@ private:
   tf::TransformListener *listener;
 
   ros::Subscriber barcodeSubscriber_;
+  std::vector<std::string> barcodes;
 
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr separatorPoints_;
+  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr barcodePoints_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
 
-  std::mutex lockSeparator_;
+  std::mutex lockBarcode_;
 
   std::string localFrameName_;
 
@@ -50,53 +51,58 @@ public:
 
   BarcodeScanner(): DrawingAnnotator(__func__), nh_("~")
   {
-    separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    barcodePoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
     listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
-  void barcodeAggregator(const refills_msgs::SeparatorArrayPtr &msg)
+  void barcodeAggregator(const refills_msgs::BarcodePtr &msg)
   {
-    std::lock_guard<std::mutex> lock(lockSeparator_);
-    for(auto m : msg->separators)
+    std::lock_guard<std::mutex> lock(lockBarcode_);
+    tf::Stamped<tf::Pose> poseStamped, poseBase;
+    tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
+    try
     {
-      tf::Stamped<tf::Pose> poseStamped, poseBase;
-      tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
-      try
+      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      pcl::PointXYZRGBL pt;
+      pt.x = poseBase.getOrigin().x();
+      pt.y = poseBase.getOrigin().y();
+      pt.z = poseBase.getOrigin().z();
+      std::vector<std::string>::iterator it = std::find(barcodes.begin(), barcodes.end(), msg->barcode);
+      if(it != barcodes.end())
       {
-        listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
-
-        pcl::PointXYZRGBA pt;
-        pt.x = poseBase.getOrigin().x();
-        pt.y = poseBase.getOrigin().y();
-        pt.z = poseBase.getOrigin().z();
-
-        separatorPoints_->points.push_back(pt);
+        pt.label = it - barcodes.begin();
       }
-      catch(tf::TransformException ex)
+      else
       {
-        outWarn(ex.what());
+        pt.label = barcodes.size();
+        barcodes.push_back(msg->barcode);
       }
+      barcodePoints_->points.push_back(pt);
+    }
+    catch(tf::TransformException ex)
+    {
+      outWarn(ex.what());
     }
   }
 
-  bool enforceZAxesSimilarity(const pcl::PointXYZRGBA &point_a, const pcl::PointXYZRGBA &point_b, float squared_distance)
+  bool enforceSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
   {
-    if(fabs(point_a.x - point_b.x) < 0.03f)
+    if(fabs(point_a.x - point_b.x) < 0.03f && point_a.label == point_b.label)
       return (true);
     else
       return (false);
   }
 
-  void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
+  void clusterPoints(pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,  pcl::IndicesClustersPtr &clusters)
   {
     outInfo("started clustering");
-    pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBA> cec(true);
+    pcl::ConditionalEuclideanClustering<pcl::PointXYZRGBL> cec(true);
 
     cec.setInputCloud(cloud);
-    cec.setConditionFunction(boost::bind(&BarcodeScanner::enforceZAxesSimilarity, this, _1, _2, _3));
+    cec.setConditionFunction(boost::bind(&BarcodeScanner::enforceSimilarity, this, _1, _2, _3));
     cec.setClusterTolerance(2.0);
     cec.setMinClusterSize(cloud->points.size() / 10);
     cec.setMaxClusterSize(cloud->points.size() / 2);
@@ -105,7 +111,7 @@ public:
   }
 
   void createResultsAndToCas(CAS &tcas,
-                             const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &cloud,
+                             const pcl::PointCloud<pcl::PointXYZRGBL>::Ptr &cloud,
                              const pcl::IndicesClustersPtr &clusters)
   {
     rs::SceneCas cas(tcas);
@@ -129,7 +135,9 @@ public:
       pose.frame_id_ = localFrameName_;
       uint64_t ts = scene.timestamp();
 
-      detection.name.set("barcode#" + std::to_string(idx++));
+      //TODO:: take point label from cluster;
+      std::string barcodeLabel = barcodes[cloud->points[c.indices[0]].label];
+      detection.name.set("barcode#" + barcodeLabel);
       pose.stamp_ = ros::Time().fromNSec(ts);
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       poseAnnotation.source.set("BarcodeScanner");
@@ -206,7 +214,7 @@ public:
           }
           if(command == "start")
           {
-              barcodeSubscriber_ = nh_.subscribe("/barcode/pose", 50, &BarcodeScanner::barcodeAggregator, this);
+            barcodeSubscriber_ = nh_.subscribe("/barcode/pose", 50, &BarcodeScanner::barcodeAggregator, this);
           }
         }
       }
@@ -217,11 +225,11 @@ public:
       outInfo("STOP received!");
 
       pcl::IndicesClustersPtr clusters(new pcl::IndicesClusters);
-      clusterPoints(separatorPoints_, clusters);
-      createResultsAndToCas(tcas, separatorPoints_, clusters);
+      clusterPoints(barcodePoints_, clusters);
+      createResultsAndToCas(tcas, barcodePoints_, clusters);
 
       dispCloud_->points.clear();
-      for(auto p : separatorPoints_->points)
+      for(auto p : barcodePoints_->points)
       {
         pcl::PointXYZRGBA pt;
         pt.x = p.x;
@@ -240,12 +248,12 @@ public:
         }
       }
 
-      separatorPoints_->points.clear();
+      barcodePoints_->points.clear();
       localFrameName_ = "";
     }
     else
     {
-      outInfo("separators found: :" << separatorPoints_->points.size());
+      outInfo("separators found: :" << barcodePoints_->points.size());
     }
 
     return UIMA_ERR_NONE;
