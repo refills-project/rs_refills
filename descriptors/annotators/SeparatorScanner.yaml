@@ -1,0 +1,7 @@
+annotator:
+  implementation: rs_separatorScanner
+  name: SeparatorScanner
+capabilities:
+  inputs: []
+  outputs: []
+parameters: {}

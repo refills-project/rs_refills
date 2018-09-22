@@ -1,0 +1,9 @@
+annotator:
+  implementation: rs_shelfDetector
+  name: ShelfDetector
+capabilities:
+  inputs: []
+  outputs: []
+parameters:
+  max_variance: 0.01
+  min_line_inliers: 40
