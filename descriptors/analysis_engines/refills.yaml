@@ -2,11 +2,11 @@ ae:
   name: refills
 fixedflow:
   - CollectionReader
-  - ImagePreprocessore
+  - ImagePreprocessor
   - RegionFilter
   - NormalEstimator
-  - BarcodeDetector
-  - SeparatorDetector
+  - BarcodeScanner
+  - SeparatorScanner
   - ShelfDetector
   - ProductCounter
 
