@@ -68,30 +68,32 @@ public:
     QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
     for(auto p : newPipelineOrder) outInfo(p);
     //these are hacks that should be handled by integration of these components in the pipeline planning process
-    if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
-    {
+    if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN) {
       rapidjson::Value &val = queryInterface->query["scan"];
-      if(val.HasMember("type"))
-      {
+      if(val.HasMember("type")) {
         std::string  type = val["type"].GetString();
 
         //TODO: this whole part should move to knowrob pipeline planni
-        if(type == "shlef")
-        {
+        if(type == "shelf") {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("ShelfDetector");
         }
-        if(type == "barcode")
-        {
+        if(type == "facing") {
+          newPipelineOrder.push_back("CollectionReader");
+          newPipelineOrder.push_back("ImagePreprocessor");
+          newPipelineOrder.push_back("NormalEstimator");
+          newPipelineOrder.push_back("SeparatorScanner");
+          newPipelineOrder.push_back("BarcodeScanner");
+        }
+        if(type == "barcode") {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("BarcodeScanner");
         }
-        if(type == "separator")
-        {
+        if(type == "separator") {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
@@ -99,8 +101,7 @@ public:
         }
       }
     }
-    if(queryType == QueryInterface::QueryType::DETECT)
-    {
+    if(queryType == QueryInterface::QueryType::DETECT) {
       newPipelineOrder.clear();
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
@@ -108,45 +109,41 @@ public:
       newPipelineOrder.push_back("ProductCounter");
     }
 
-    processing_mutex_.lock();
-    if(queryType == QueryInterface::QueryType::SCAN)
     {
-      rapidjson::Value &val = queryInterface->query["scan"];
-      if(val.HasMember("command"))
-      {
-        std::string  command = val["command"].GetString();
-        if(command == "start")
-        {
-          engine_.setQuery(req);
-          engine_.changeLowLevelPipeline(newPipelineOrder);
-          waitForServiceCall_ = false;
-          processing_mutex_.unlock();
-          return true;
-        }
-        else if(command == "stop")
-        {
-          waitForServiceCall_ = true;
-          engine_.process(newPipelineOrder, true, res, req);
-          processing_mutex_.unlock();
-          return true;
+      std::lock_guard<std::mutex> lock(processing_mutex_);
+      if(queryType == QueryInterface::QueryType::SCAN) {
+        rapidjson::Value &val = queryInterface->query["scan"];
+        if(val.HasMember("command")) {
+          std::string  command = val["command"].GetString();
+          if(command == "start") {
+            engine_.setQuery(req);
+            engine_.changeLowLevelPipeline(newPipelineOrder);
+            waitForServiceCall_ = false;
+            return true;
+          }
+          else if(command == "stop") {
+            waitForServiceCall_ = true;
+            engine_.setNextPipeline(newPipelineOrder);
+            engine_.applyNextPipeline();
+            engine_.process(res, req);
+            return true;
+          }
         }
       }
+      else if(queryType == QueryInterface::QueryType::DETECT) {
+        //       rapidjson::Value &val = queryInterface->query["count"];
+        engine_.setQuery(req);
+        engine_.setNextPipeline(newPipelineOrder);
+        engine_.applyNextPipeline();
+        engine_.process(res, req);
+        return true;
+      }
+      else {
+        outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
+        processing_mutex_.unlock();
+        return false;
+      }
     }
-    else if(queryType == QueryInterface::QueryType::DETECT)
-    {
-      //       rapidjson::Value &val = queryInterface->query["count"];
-      engine_.setQuery(req);
-      engine_.process(newPipelineOrder, true, res, req);
-      processing_mutex_.unlock();
-      return true;
-    }
-    else
-    {
-      outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
-      processing_mutex_.unlock();
-      return false;
-    }
-    processing_mutex_.unlock();
     return false;
   }
 };
@@ -166,8 +163,7 @@ void help()
 
 int main(int argc, char *argv[])
 {
-  if(argc < 2)
-  {
+  if(argc < 2) {
     help();
     return 1;
   }
@@ -184,20 +180,17 @@ int main(int argc, char *argv[])
   ros::service::waitForService("/json_prolog/simple_query");
   rs::common::getAEPaths(analysisEnginesName, analysisEngineFile);
 
-  if(analysisEngineFile.empty())
-  {
+  if(analysisEngineFile.empty()) {
     outError("analysis   engine \"" << analysisEngineFile << "\" not found.");
     return -1;
   }
-  else
-  {
+  else {
     outInfo(analysisEngineFile);
   }
 
   std::string configFile = ros::package::getPath("rs_refills") + "/config/config_refills.yaml";
 
-  try
-  {
+  try {
     RSRefillsProcessManager manager(useVisualizer, waitForServiceCall, nh);
     manager.setUseIdentityResolution(false);
 
@@ -206,23 +199,19 @@ int main(int argc, char *argv[])
     manager.run();
     manager.stop();
   }
-  catch(const rs::Exception &e)
-  {
+  catch(const rs::Exception &e) {
     outError("Exception: " << std::endl << e.what());
     return -1;
   }
-  catch(const uima::Exception &e)
-  {
+  catch(const uima::Exception &e) {
     outError("Exception: " << std::endl << e);
     return -1;
   }
-  catch(const std::exception &e)
-  {
+  catch(const std::exception &e) {
     outError("Exception: " << std::endl << e.what());
     return -1;
   }
-  catch(...)
-  {
+  catch(...) {
     outError("Unknown exception!");
     return -1;
   }

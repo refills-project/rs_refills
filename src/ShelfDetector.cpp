@@ -609,7 +609,7 @@ public:
     bool reset = false;
     if(cas.getFS("QUERY", query))
     {
-      queryAsString = query.asJson();
+      queryAsString = query.query();
       if(queryAsString != "")
       {
         rapidjson::Document jsonQuery;

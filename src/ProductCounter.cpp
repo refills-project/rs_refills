@@ -109,7 +109,7 @@ public:
     rs::Query query = rs::create<rs::Query>(tcas);
     if(cas.getFS("QUERY", query))
     {
-      std::string queryAsString = query.asJson();
+      std::string queryAsString = query.query();
       if(queryAsString != "")
       {
         rapidjson::Document doc;
