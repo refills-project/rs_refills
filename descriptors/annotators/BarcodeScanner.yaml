@@ -2,6 +2,6 @@ annotator:
   implementation: rs_barcodeScanner
   name: BarcodeScanner
 capabilities:
-  inputs: []
-  outputs: []
+  inputs: {}
+  outputs: {}
 parameters: {}

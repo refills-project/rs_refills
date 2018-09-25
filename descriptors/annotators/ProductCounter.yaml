@@ -2,8 +2,8 @@ annotator:
   implementation: rs_productCounter
   name: ProductCounter
 capabilities:
-  inputs: []
-  outputs: []
+  inputs: {}
+  outputs: {}
 parameters:
   external: true
   use_local_frame: true

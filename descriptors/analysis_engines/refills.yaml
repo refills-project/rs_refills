@@ -9,11 +9,10 @@ fixedflow:
   - SeparatorScanner
   - ShelfDetector
   - ProductCounter
-
 CollectionReader:
-  - camera_config_files: ['config_realsense_donbot.ini']
+  camera_config_files: ['config_realsense_donbot.ini']
 RegionFilter:
-  - defaultRegions: ['shelf_system_0']
+  defaultRegions: ['shelf_system_0']
 ProductCounter:
-  - use_local_frame: true
+  use_local_frame: true
  
