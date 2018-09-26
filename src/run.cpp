@@ -58,6 +58,10 @@ public:
   {
 
   }
+  virtual ~RSRefillsProcessManager()
+  {
+
+  }
 
   bool handleQuery(std::string &req, std::vector<std::string> &res)
   {
