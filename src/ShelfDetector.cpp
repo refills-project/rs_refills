@@ -283,10 +283,10 @@ public:
       std::string layerType = "standing";
 
 
-      if(sCount == 0 || (sCount != 0 && bCount != 0 && (float)sCount / (float)bCount < 0.15))
+      if(sCount == 0 || (sCount != 0 && bCount != 0 && (float)sCount / (float)bCount < 0.20))
         layerType = "rack";
 
-      outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType);
+      outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
       pose.stamp_ = ros::Time().fromNSec(ts);
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
