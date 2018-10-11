@@ -5,5 +5,5 @@ capabilities:
   inputs: {}
   outputs: {}
 parameters:
-  external: true
+  external: false
   use_local_frame: true
