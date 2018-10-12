@@ -38,6 +38,8 @@
 //json_prolog
 #include <json_prolog/prolog.h>
 
+#include <refills_msgs/SeparatorArray.h>
+
 using namespace uima;
 
 
@@ -51,16 +53,19 @@ private:
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr_;
   std::vector<pcl::PointIndices> cluster_indices_;
 
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr separatorPoints_;
+
   cv::Mat rgb_;
   std::string localFrameName_;
 
-  struct BoundingBox
-  {
+  struct BoundingBox {
     pcl::PointXYZ minPt, maxPt;
   };
 
 
   tf::TransformListener *listener;
+  ros::Subscriber separatorSubscriber_;
+
   std::vector<BoundingBox> cluster_boxes;
   ros::NodeHandle nodeHandle_;
 
@@ -71,17 +76,45 @@ private:
 
   sensor_msgs::CameraInfo camInfo_;
 
+  std::mutex mtx;
 public:
 
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~"), it_(nodeHandle_)
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), nodeHandle_("~"), it_(nodeHandle_), localFrameName_("")
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
-
+    separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
 
     image_pub_ = it_.advertise("counting_image", 1, true);
 
+    separatorSubscriber_ = nodeHandle_.subscribe("/separator_marker_detector_node/data_out", 50, &ProductCounter::separatorCb, this);
+
+  }
+
+  void separatorCb(const refills_msgs::SeparatorArrayPtr &msg)
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    if(localFrameName_ != "") {
+      for(auto m : msg->separators) {
+        tf::Stamped<tf::Pose> poseStamped, poseBase;
+        tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
+        try {
+          listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+          listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+
+          pcl::PointXYZRGBA pt;
+          pt.x = poseBase.getOrigin().x();
+          pt.y = poseBase.getOrigin().y();
+          pt.z = poseBase.getOrigin().z();
+
+          separatorPoints_->points.push_back(pt);
+        }
+        catch(tf::TransformException ex) {
+          outWarn(ex.what());
+        }
+      }
+    }
   }
   TyErrorId initialize(AnnotatorContext &ctx)
   {
@@ -107,23 +140,18 @@ public:
   {
     rs::SceneCas cas(tcas);
     rs::Query query = rs::create<rs::Query>(tcas);
-    if(cas.getFS("QUERY", query))
-    {
+    if(cas.getFS("QUERY", query)) {
       std::string queryAsString = query.query();
-      if(queryAsString != "")
-      {
+      if(queryAsString != "") {
         rapidjson::Document doc;
         doc.Parse(queryAsString.c_str());
-        if(doc.HasMember("detect"))
-        {
+        if(doc.HasMember("detect")) {
           rapidjson::Value &dQuery = doc["detect"];
 
-          if(dQuery.HasMember("type"))
-          {
+          if(dQuery.HasMember("type")) {
             obj = dQuery["type"].GetString();
           }
-          if(dQuery.HasMember("pose_stamped"))
-          {
+          if(dQuery.HasMember("pose_stamped")) {
 
             tf::Vector3 position;
             position.setX(dQuery["pose_stamped"]["pose"]["position"]["x"].GetFloat());
@@ -136,8 +164,7 @@ public:
           }
           else
             return false;
-          if(useLocalFrame_)
-          {
+          if(useLocalFrame_) {
             if(!dQuery.HasMember("location")) return false;
             localFrameName_ = dQuery["location"].GetString();
           }
@@ -177,16 +204,13 @@ public:
 
     json_prolog::Prolog pl;
     outInfo("Asking query: " << plQuery.str());
-    try
-    {
+    try {
       json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
-      if(bdgs.begin() == bdgs.end())
-      {
+      if(bdgs.begin() == bdgs.end()) {
         outWarn("No solution to query: " << plQuery.str());
         return false;
       }
-      for(auto bdg : bdgs)
-      {
+      for(auto bdg : bdgs) {
         depth = bdg["D"];
         height = bdg["H"];
         width = bdg["W"];
@@ -194,8 +218,7 @@ public:
         break;
       }
     }
-    catch(std::exception e)
-    {
+    catch(std::exception e) {
       return false;
     }
     return false;
@@ -208,8 +231,7 @@ public:
     float minX, minY, minZ;
     float maxX, maxY, maxZ;
 
-    if(shelf_type == "hanging")
-    {
+    if(shelf_type == "hanging") {
       minX = poseStamped.getOrigin().x() - width / 2;
       maxX = poseStamped.getOrigin().x() + width / 2;
 
@@ -219,17 +241,15 @@ public:
       maxZ = poseStamped.getOrigin().z();
       minZ = poseStamped.getOrigin().z() - depth;
     }
-    else if(shelf_type == "standing")
-    {
-      minX = poseStamped.getOrigin().x() + 0.02;
-      maxX = minX + width - 0.04;
+    else if(shelf_type == "standing") {
+      minX = poseStamped.getOrigin().x() + 0.01;
+      maxX = minX + width - 0.02;
 
-      minY = poseStamped.getOrigin().y() - 0.04; //move closer to cam with 2 cm
+      minY = poseStamped.getOrigin().y()- 0.04; //move closer to cam with 2 cm
       maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
 
-      minZ = poseStamped.getOrigin().z() + 0.015  ; //raise with 2.5 cm
+      minZ = poseStamped.getOrigin().z() + 0.01; //raise with 2.5 cm
       maxZ = poseStamped.getOrigin().z() + depth;
-      + 0.02 ; //make sure to get point from the top
     }
 
     pass.setInputCloud(cloudFiltered_);
@@ -287,8 +307,7 @@ public:
     outInfo("Cluster Size before filtering:" << cluster_i.size());
 
     for(std::vector<pcl::PointIndices>::iterator it = cluster_i.begin();
-        it != cluster_i.end();)
-    {
+        it != cluster_i.end();) {
       if(it->indices.size() < 600)
         it = cluster_i.erase(it);
       else
@@ -299,26 +318,23 @@ public:
     //if two clusters in the same y range
     std::vector<pcl::PointIndices> mergedClusterIndices;
 
-    for(int i = 0; i < cluster_i.size(); ++i)
-    {
+    for(int i = 0; i < cluster_i.size(); ++i) {
       Eigen::Vector4f c1;
       pcl::compute3DCentroid(*cloudFiltered_, cluster_i[i], c1);
       bool merged = false;
-      for(int j = 0; j < mergedClusterIndices.size(); j++)
-      {
+      for(int j = 0; j < mergedClusterIndices.size(); j++) {
         Eigen::Vector4f c2;
         pcl::compute3DCentroid(*cloudFiltered_, mergedClusterIndices[j], c2);
-        if(std::abs(c1[1] - c2[1]) < obj_depth)
-        {
-            mergedClusterIndices[j].indices.insert(mergedClusterIndices[j].indices.end(),
-                                                   cluster_i[i].indices.begin(),
-                                                   cluster_i[i].indices.end());
-            merged = true;
-            break;
+        if(std::abs(c1[1] - c2[1]) < obj_depth) {
+          mergedClusterIndices[j].indices.insert(mergedClusterIndices[j].indices.end(),
+                                                 cluster_i[i].indices.begin(),
+                                                 cluster_i[i].indices.end());
+          merged = true;
+          break;
         }
       }
-      if (!merged)
-          mergedClusterIndices.push_back(cluster_i[i]);
+      if(!merged)
+        mergedClusterIndices.push_back(cluster_i[i]);
     }
 
     outInfo("Found " << mergedClusterIndices.size() << " good clusters after filtering and merging!");
@@ -327,8 +343,7 @@ public:
           gminZ = std::numeric_limits<float>::max(),
           gmaxX = std::numeric_limits<float>::min(),
           gmaxZ = std::numeric_limits<float>::min();
-    for(int i = 0; i < mergedClusterIndices.size(); ++i)
-    {
+    for(int i = 0; i < mergedClusterIndices.size(); ++i) {
       Eigen::Vector4f  min, max;
       pcl::getMinMax3D(*cloudFiltered_, mergedClusterIndices[i].indices, min, max);
       float pdepth = std::abs(min[1] - max[1]);
@@ -345,19 +360,16 @@ public:
       if(bb.minPt.x < gminX) gminX = bb.minPt.x;
       if(bb.minPt.z < gminZ) gminZ = bb.minPt.z;
 
-      if(count <= 1)
-      {
+      if(count <= 1) {
         bb.maxPt.y = max[1];
         bb.minPt.y = min[1];
         cluster_boxes.push_back(bb);
         cluster_indices_.push_back(mergedClusterIndices[i]);
       }
-      else
-      {
+      else {
         float step = pdepth / count;
         outError("Split this cloud into" << count << " piceses");
-        for(int j = 0; j < count; ++j)
-        {
+        for(int j = 0; j < count; ++j) {
           pcl::PointIndices newIndices;
           float minY = min[1] + j * step;
           float maxY = min[1] + (j + 1) * step;
@@ -378,8 +390,7 @@ public:
     }
 
     //overwrite all dimensions with biggest BB;
-    for(auto &bb : cluster_boxes)
-    {
+    for(auto &bb : cluster_boxes) {
       bb.maxPt.x = gmaxX;
       bb.maxPt.z = gmaxZ;
       bb.minPt.x = gminX;
@@ -391,8 +402,7 @@ public:
   {
     rs::SceneCas cas(tcas);
     rs::Scene scene = cas.getScene();
-    for(int i = 0; i < cluster_indices_.size(); ++i)
-    {
+    for(int i = 0; i < cluster_indices_.size(); ++i) {
       rs::Cluster hyp = rs::create<rs::Cluster>(tcas);
       rs::Detection detection = rs::create<rs::Detection>(tcas);
       detection.source.set("ProductCounter");
@@ -425,89 +435,118 @@ public:
     if(!handleQuery(tcas, objToScan, separatorPose, shelfType, distToNextSep)) return false;
     nextSeparatorPose = separatorPose;
 
-    outInfo("Obj To Scan is: " << objToScan);
-    outInfo("Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
-    double height = 0.0, width = 0.0, depth = 0.0;
-    getObjectDims(objToScan, height, width, depth);
-    outInfo("height = " << height << " width = " << width << " depth  = " << depth);
-
-
-    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
-    cas.get(VIEW_CLOUD, *cloud_ptr_);
-    cas.get(VIEW_NORMALS, *cloud_normals);
-    cas.get(VIEW_COLOR_IMAGE, rgb_);
-
-
-    cas.get(VIEW_CAMERA_INFO, camInfo_);
-
-    rs::Scene scene = cas.getScene();
-
-    camToWorld_.setIdentity();
-    if(scene.viewPoint.has() && !useLocalFrame_)
-      rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-    else if(useLocalFrame_)
     {
-      try
-      {
-        //TODO CHANGE THIS ACK TO camInfo._head
-        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
-        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
-        if(separatorPose.frame_id_ != localFrameName_)
-        {
+      std::lock_guard<std::mutex> lock(mtx);
+      outInfo("Obj To Scan is: " << objToScan);
+      outInfo("Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
+      double height = 0.0, width = 0.0, depth = 0.0;
+      getObjectDims(objToScan, height, width, depth);
+      outInfo("height = " << height << " width = " << width << " depth  = " << depth);
 
-          listener->transformPose(localFrameName_, separatorPose, separatorPose);
 
-          outInfo("New Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
+      pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+      cas.get(VIEW_CLOUD, *cloud_ptr_);
+      cas.get(VIEW_NORMALS, *cloud_normals);
+      cas.get(VIEW_COLOR_IMAGE, rgb_);
+
+
+      cas.get(VIEW_CAMERA_INFO, camInfo_);
+
+      rs::Scene scene = cas.getScene();
+
+      camToWorld_.setIdentity();
+      if(scene.viewPoint.has() && !useLocalFrame_)
+        rs::conversion::from(scene.viewPoint.get(), camToWorld_);
+      else if(useLocalFrame_) {
+        try {
+          //TODO CHANGE THIS ACK TO camInfo._head
+          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
+          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
+          if(separatorPose.frame_id_ != localFrameName_) {
+
+            listener->transformPose(localFrameName_, separatorPose, separatorPose);
+            outInfo("New Separator location is: [" << separatorPose.getOrigin().x() << "," << separatorPose.getOrigin().y() << "," << separatorPose.getOrigin().z() << "]");
+          }
+
+          tf::Vector3 position = separatorPose.getOrigin();
+          position.setX(position.x() + distToNextSep);
+          nextSeparatorPose.setOrigin(position);
+
+
+          //let's find the closes separators in the current detection;
+          if(separatorPoints_->size() > 2) {
+            outInfo("Using current detection of separators to fix positions");
+            pcl::PointXYZRGBA s1, s2;
+            s1.x = separatorPose.getOrigin().x();
+            s1.y = separatorPose.getOrigin().y();
+            s1.z = separatorPose.getOrigin().z();
+
+            s2.x = nextSeparatorPose.getOrigin().x();
+            s2.y = nextSeparatorPose.getOrigin().y();
+            s2.z = nextSeparatorPose.getOrigin().z();
+
+            pcl::search::KdTree<pcl::PointXYZRGBA>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBA>());
+            tree->setInputCloud(separatorPoints_);
+            std::vector<int> pointIdxRadiusSearch;
+            std::vector<float> pointRadiusSquaredDistance;
+            if(tree->radiusSearch(s1, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
+              outInfo("Found " << pointIdxRadiusSearch.size() << " clouse to separator 1");
+              pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
+              separatorPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
+              separatorPoints_->points.erase(separatorPoints_->points.begin()+pointIdxRadiusSearch[0]);
+            }
+            tree->setInputCloud(separatorPoints_);
+            if(tree->radiusSearch(s2, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
+              outInfo("Found " << pointIdxRadiusSearch.size() << " clouse to separator 2");
+              pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
+              nextSeparatorPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
+            }
+          }
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ separatorPose, /*"map"*/ separatorPoseInImage_);
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */nextSeparatorPose,/* "map"*/ nextSeparatorPoseInImage_);
+
         }
-
-        tf::Vector3 position = separatorPose.getOrigin();
-        position.setX(position.x() + distToNextSep);
-        nextSeparatorPose.setOrigin(position);
-
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ separatorPose, /*"map"*/ separatorPoseInImage_);
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */nextSeparatorPose,/* "map"*/ nextSeparatorPoseInImage_);
+        catch(tf::TransformException &ex) {
+          outError(ex.what());
+          return UIMA_ERR_NONE;
+        }
       }
-      catch(tf::TransformException &ex)
-      {
-        outError(ex.what());
-        return UIMA_ERR_NONE;
+
+      Eigen::Affine3d eigenTransform;
+      tf::transformTFToEigen(camToWorld_, eigenTransform);
+      pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
+
+      //0.4 is shelf_depth
+      if(width != 0.0 && distToNextSep != 0.0)
+        filterCloud(separatorPose, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
+      else if(distToNextSep != 0.0) {
+        ///0.22 m is the biggest height of object we consider if there is no info
+        filterCloud(separatorPose, distToNextSep, 0.15, shelfType);
       }
+      else
+        return false;
+      //cluster the filtered cloud and split clusters in chunks of height (on y axes)
+
+      clusterCloud(depth, cloud_normals);
+      addToCas(tcas, objToScan);
+//      separatorPoints_->clear();
     }
-
-    Eigen::Affine3d eigenTransform;
-    tf::transformTFToEigen(camToWorld_, eigenTransform);
-    pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
-
-    //0.4 is shelf_depth
-    if(width != 0.0 && distToNextSep != 0.0)
-      filterCloud(separatorPose, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
-    else if(distToNextSep != 0.0)
-    {
-      ///0.22 m is the biggest height of object we consider if there is no info
-      filterCloud(separatorPose, distToNextSep, 0.15, shelfType);
-    }
-    else
-      return false;
-    //cluster the filtered cloud and split clusters in chunks of height (on y axes)
-
-    clusterCloud(depth, cloud_normals);
-    addToCas(tcas, objToScan);
     return true;
   }
+
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
     outInfo("process start");
     MEASURE_TIME;
 
-    if(external_)
-    {
+    if(external_) {
       countWithExternalAlgo(tcas);
     }
-    else
-    {
+    else {
       cloudFiltered_->clear();
       cluster_indices_.clear();
       cluster_boxes.clear();
+
       countObject(tcas);
       drawOnImage();
     }
@@ -578,46 +617,12 @@ public:
 
   void drawOnImage()
   {
-    for(int j = 0; j < cluster_indices_.size(); ++j)
-    {
-      for(int i = 0; i < cluster_indices_[j].indices.size(); ++i)
-      {
+    for(int j = 0; j < cluster_indices_.size(); ++j) {
+      for(int i = 0; i < cluster_indices_[j].indices.size(); ++i) {
         int index = cluster_indices_[j].indices[i];
         rgb_.at<cv::Vec3b>(index) = rs::common::cvVec3bColors[j % rs::common::numberOfColors];
       }
     }
-
-
-    //THE HACKY WAY
-    /*    pcl::PointXYZRGBA leftSepPoint, rightSepPoint;
-        leftSepPoint.x = separatorPoseInImage_.getOrigin().x();
-        leftSepPoint.y = separatorPoseInImage_.getOrigin().y();
-        leftSepPoint.z = separatorPoseInImage_.getOrigin().z();
-
-        rightSepPoint.x = nextSeparatorPoseInImage_.getOrigin().x();
-        rightSepPoint.y = nextSeparatorPoseInImage_.getOrigin().y();
-        rightSepPoint.z = nextSeparatorPoseInImage_.getOrigin().z();
-
-        pcl::KdTreeFLANN<pcl::PointXYZRGBA> kdtree;
-        kdtree.setInputCloud(cloud_ptr_);
-
-        // K nearest neighbor search
-        std::vector<int> pointIdxNKNSearch(1);
-        std::vector<float> pointNKNSquaredDistance(1);
-        if(kdtree.nearestKSearch (leftSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
-        {
-            cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
-            cv::circle(rgb_, circleCenter, 10, cv::Scalar(255, 0, 0), 3);
-        }
-        pointIdxNKNSearch.clear();
-        pointNKNSquaredDistance.clear();
-
-        if(kdtree.nearestKSearch (rightSepPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance))
-        {
-            cv::Point circleCenter(pointIdxNKNSearch[0]%640,pointIdxNKNSearch[0]/640);
-            cv::circle(rgb_, circleCenter, 10, cv::Scalar(0, 255, 0), 3);
-        }
-    */
 
     //THE NICE WAY
     cv::Point leftSepInImage =  projection(separatorPoseInImage_);
@@ -649,13 +654,11 @@ public:
   {
     const std::string &cloudname = "cloud";
     double pointSize = 1.0;
-    if(firstRun)
-    {
+    if(firstRun) {
       visualizer.addPointCloud(cloudFiltered_, cloudname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
     }
-    else
-    {
+    else {
       visualizer.updatePointCloud(cloudFiltered_,  cloudname);
       visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
       visualizer.removeAllShapes();
@@ -663,8 +666,7 @@ public:
     int idx = 0;
 
 
-    for(auto &bb : cluster_boxes)
-    {
+    for(auto &bb : cluster_boxes) {
       visualizer.addCube(bb.minPt.x, bb.maxPt.x, bb.minPt.y, bb.maxPt.y, bb.minPt.z, bb.maxPt.z, 1.0, 1.0, 1.0,
                          "box_" + std::to_string(idx));
       idx++;
