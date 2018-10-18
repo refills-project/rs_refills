@@ -72,7 +72,8 @@ private:
   image_transport::Publisher image_pub_;
   image_transport::ImageTransport it_;
 
-  tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_;
+  tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_, originalSeparator1PoseImageFrame_, 
+  originalSeparator2PoseImageFrame_;
 
   sensor_msgs::CameraInfo camInfo_;
 
@@ -225,7 +226,8 @@ public:
   }
 
   void filterCloud(const tf::Stamped<tf::Pose> &poseStamped,
-                   const double &width, const double &depth, std::string shelf_type)
+                   const tf::Stamped<tf::Pose> &pose2Stamped,
+                   const double &depth, std::string shelf_type, float width)
   {
     pcl::PassThrough<pcl::PointXYZRGBA> pass;
     float minX, minY, minZ;
@@ -242,8 +244,14 @@ public:
       minZ = poseStamped.getOrigin().z() - depth;
     }
     else if(shelf_type == "standing") {
-      minX = poseStamped.getOrigin().x() + 0.01;
-      maxX = minX + width - 0.02;
+      
+      float xOffset = 0.01;  
+      if (poseStamped.getOrigin().x()- pose2Stamped.getOrigin().x() < 0.025)
+          xOffset = 0.00;
+      
+      //xOffste= (poseStamped.getOrigin().x()- pose2Stamped.getOrigin().x())
+      minX = poseStamped.getOrigin().x() + xOffset;
+      maxX = pose2Stamped.getOrigin().x() - xOffset;
 
       minY = poseStamped.getOrigin().y()- 0.04; //move closer to cam with 2 cm
       maxY = minY + 0.41; //this can vary between 0.3 and 0.5;
@@ -454,14 +462,12 @@ public:
 
       rs::Scene scene = cas.getScene();
 
-      camToWorld_.setIdentity();
-      if(scene.viewPoint.has() && !useLocalFrame_)
-        rs::conversion::from(scene.viewPoint.get(), camToWorld_);
-      else if(useLocalFrame_) {
         try {
-          //TODO CHANGE THIS ACK TO camInfo._head
-          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
-          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
+          //listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
+          //listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
+          
+          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
+          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
           if(separatorPose.frame_id_ != localFrameName_) {
 
             listener->transformPose(localFrameName_, separatorPose, separatorPose);
@@ -472,8 +478,11 @@ public:
           position.setX(position.x() + distToNextSep);
           nextSeparatorPose.setOrigin(position);
 
+          //let's find the closest separators in the current detection;
+          
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ separatorPose, /*"map"*/ originalSeparator1PoseImageFrame_);
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0   ), */nextSeparatorPose,/* "map"*/ originalSeparator2PoseImageFrame_);
 
-          //let's find the closes separators in the current detection;
           if(separatorPoints_->size() > 2) {
             outInfo("Using current detection of separators to fix positions");
             pcl::PointXYZRGBA s1, s2;
@@ -494,7 +503,11 @@ public:
               pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
               separatorPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
               separatorPoints_->points.erase(separatorPoints_->points.begin()+pointIdxRadiusSearch[0]);
+              s2.x = separatorPose.getOrigin().x()+distToNextSep;
+              s2.y = separatorPose.getOrigin().y();
+              s2.z = separatorPose.getOrigin().z(); 
             }
+            
             tree->setInputCloud(separatorPoints_);
             if(tree->radiusSearch(s2, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
               outInfo("Found " << pointIdxRadiusSearch.size() << " clouse to separator 2");
@@ -502,6 +515,8 @@ public:
               nextSeparatorPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
             }
           }
+          
+        
           listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ separatorPose, /*"map"*/ separatorPoseInImage_);
           listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */nextSeparatorPose,/* "map"*/ nextSeparatorPoseInImage_);
 
@@ -510,7 +525,7 @@ public:
           outError(ex.what());
           return UIMA_ERR_NONE;
         }
-      }
+
 
       Eigen::Affine3d eigenTransform;
       tf::transformTFToEigen(camToWorld_, eigenTransform);
@@ -518,10 +533,10 @@ public:
 
       //0.4 is shelf_depth
       if(width != 0.0 && distToNextSep != 0.0)
-        filterCloud(separatorPose, distToNextSep, height, shelfType); //depth of a shelf is given by the shelf_type
+        filterCloud(separatorPose, nextSeparatorPose, height, shelfType,width); //depth of a shelf is given by the shelf_type
       else if(distToNextSep != 0.0) {
         ///0.22 m is the biggest height of object we consider if there is no info
-        filterCloud(separatorPose, distToNextSep, 0.15, shelfType);
+        filterCloud(separatorPose, nextSeparatorPose, 0.15, shelfType, width);
       }
       else
         return false;
@@ -529,7 +544,7 @@ public:
 
       clusterCloud(depth, cloud_normals);
       addToCas(tcas, objToScan);
-//      separatorPoints_->clear();
+      separatorPoints_->clear();
     }
     return true;
   }
@@ -626,16 +641,23 @@ public:
 
     //THE NICE WAY
     cv::Point leftSepInImage =  projection(separatorPoseInImage_);
-
     cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
+    
+    cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_);
+    cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_);
+    
+    
     if(leftSepInImage.y > camInfo_.height) leftSepInImage.y =  camInfo_.height - 2;
     if(rightSepInImage.y > camInfo_.height) rightSepInImage.y =  camInfo_.height - 2;
 
     outInfo("Left Sep image coords: " << leftSepInImage);
     outInfo("Right Sep image coords: " << rightSepInImage);
-    cv::circle(rgb_, leftSepInImage, 5, cv::Scalar(255, 255, 0), 3);
-    cv::circle(rgb_, rightSepInImage, 5, cv::Scalar(0, 255, 255), 3);
+    cv::circle(rgb_, leftSepInImage, 5, cv::Scalar(255, 0, 0), 3);
+    cv::circle(rgb_, rightSepInImage, 5, cv::Scalar(255, 0, 0), 3);
 
+    cv::circle(rgb_, origLeftSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+    cv::circle(rgb_, origRightSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+    
     cv_bridge::CvImage outImgMsgs;
     outImgMsgs.header = camInfo_.header;
     outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
