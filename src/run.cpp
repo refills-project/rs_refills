@@ -135,7 +135,6 @@ public:
         }
       }
       else if(queryType == QueryInterface::QueryType::DETECT) {
-        //       rapidjson::Value &val = queryInterface->query["count"];
         engine_.setQuery(req);
         engine_.setNextPipeline(newPipelineOrder);
         engine_.applyNextPipeline();

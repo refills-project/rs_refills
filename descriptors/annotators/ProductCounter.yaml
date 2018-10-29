@@ -7,3 +7,4 @@ capabilities:
 parameters:
   external: false
   use_local_frame: true
+  saveImgFiles: true
