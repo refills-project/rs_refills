@@ -61,6 +61,7 @@ private:
     std::string gtin;
     std::string dan;
     std::string productId;
+    std::string facingId;
   };
 
 
@@ -68,7 +69,7 @@ private:
   tf::StampedTransform camToWorld_;
 
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloudFiltered_;
-  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr_;
+  pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_ptr_, cloud_transformed_;
   std::vector<pcl::PointIndices> cluster_indices_;
 
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr separatorPoints_;
@@ -99,9 +100,10 @@ private:
   cv::Rect rect_;
 
 public:
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false), nodeHandle_("~"), it_(nodeHandle_), localFrameName_("")
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false),localFrameName_(""), nodeHandle_("~"), it_(nodeHandle_)
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
+    cloud_transformed_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
@@ -178,59 +180,13 @@ public:
     return true;
   }
 
-  bool getObjectDims(const std::string obj,
-                     double &height, double &width, double &depth)
-  {
-    //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
-    std::stringstream plQuery;
-    std::stringstream objUri;
-
-    if(obj.find("http://") == std::string::npos)
-      objUri << "shop:'" << obj << "'";
-    else
-      objUri << "'" << obj << "'";
-
-    plQuery << "owl_class_properties(" << objUri.str() << ",shop:depthOfProduct," <<
-            "literal(type(_,D_XSD))),atom_number(D_XSD,D),"
-            << "owl_class_properties(" << objUri.str() << ",shop:widthOfProduct," <<
-            "literal(type(_,W_XSD))),atom_number(W_XSD,W),"
-            << "owl_class_properties(" << objUri.str() << ",shop:heightOfProduct," <<
-            "literal(type(_,H_XSD))),atom_number(H_XSD,H),!.";
-
-    json_prolog::Prolog pl;
-    outInfo("Asking query: " << plQuery.str());
-    try {
-      json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
-      if(bdgs.begin() == bdgs.end()) {
-        outWarn("No solution to query: " << plQuery.str());
-        return false;
-      }
-      for(auto bdg : bdgs) {
-        depth = bdg["D"];
-        height = bdg["H"];
-        width = bdg["W"];
-        return true;
-      }
-    }
-    catch(std::exception e) {
-      outError("Exception when looking up object dimensions: " << e.what());
-      return false;
-    }
-    return false;
-  }
-
-
-  bool getFacingInformation(const std::string facingID, Facing &facing)
+  bool getFacingInformation(Facing &facing)
   {
     //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
     std::stringstream plQuery;
     json_prolog::Prolog pl;
-    plQuery << "shelf_facing(F,'" << facingID << "'),shelf_layer_standing(F).";
-    //    if(obj.find("http://") == std::string::npos)
-    //      objUri << "shop:'" << obj << "'";
-    //    else
-    //      objUri << "'" << obj << "'";
-    //start by determening facing type (hanging/standing)
+    plQuery << "shelf_facing(F,'" << facing.facingId << "'),shelf_layer_standing(F).";
+
     try {
       outInfo("Asking query: " << plQuery.str());
       json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
@@ -246,8 +202,8 @@ public:
       if(facing.shelfType == facing.ShelfType::STANDING) {
         //get the left and Right separators:
         plQuery.str(std::string(""));
-        plQuery << "rdf_has('" << facingID << "', shop:leftSeparator, L), object_perception_affordance_frame_name(L,LFrameName),"
-                << "rdf_has('" << facingID << "', shop:rightSeparator,R), object_perception_affordance_frame_name(R,RFrameName).";
+        plQuery << "rdf_has('" << facing.facingId << "', shop:leftSeparator, L), object_perception_affordance_frame_name(L,LFrameName),"
+                << "rdf_has('" << facing.facingId << "', shop:rightSeparator,R), object_perception_affordance_frame_name(R,RFrameName).";
         outInfo("Asking query: " << plQuery.str());
         bdgs = pl.query(plQuery.str());
         if(bdgs.begin() == bdgs.end()) {
@@ -257,16 +213,16 @@ public:
         std::string leftSepTFId, rightSepTFId;
         for(auto bdg : bdgs) {
           leftSepTFId = bdg["LFrameName"].toString();
-          leftSepTFId =leftSepTFId.substr(1,leftSepTFId.size()-2);
+          leftSepTFId = leftSepTFId.substr(1, leftSepTFId.size() - 2);
           rightSepTFId = bdg["RFrameName"].toString();
-          rightSepTFId =rightSepTFId.substr(1,rightSepTFId.size()-2);
+          rightSepTFId = rightSepTFId.substr(1, rightSepTFId.size() - 2);
           break;
         }
         tf::StampedTransform leftSep, rightSep;
-        listener->waitForTransform(localFrameName_,leftSepTFId,ros::Time(0),ros::Duration(2.0));
-        listener->lookupTransform(localFrameName_,leftSepTFId , ros::Time(0), leftSep);
-        listener->waitForTransform(localFrameName_,rightSepTFId,ros::Time(0),ros::Duration(2.0));
-        listener->lookupTransform(localFrameName_,rightSepTFId , ros::Time(0), rightSep);
+        listener->waitForTransform(localFrameName_, leftSepTFId, ros::Time(0), ros::Duration(2.0));
+        listener->lookupTransform(localFrameName_, leftSepTFId, ros::Time(0), leftSep);
+        listener->waitForTransform(localFrameName_, rightSepTFId, ros::Time(0), ros::Duration(2.0));
+        listener->lookupTransform(localFrameName_, rightSepTFId, ros::Time(0), rightSep);
         facing.leftSeparator.setRotation(leftSep.getRotation());
         facing.leftSeparator.setOrigin(leftSep.getOrigin());
         facing.leftSeparator.frame_id_ = leftSep.frame_id_;
@@ -279,7 +235,9 @@ public:
       }
       else if(facing.shelfType == facing.ShelfType::HANGING) {
         plQuery.str(std::string(""));
-        plQuery << "rdf_has('" << facingID << "', shop:mountingBarOfFacing, M), object_frame_name(M,MFrameName).";
+        plQuery << "rdf_has('" << facing.facingId << "', shop:mountingBarOfFacing, M), object_perception_affordance_frame_name(M,MFrameName).";
+        outInfo("Asking query: " << plQuery.str());
+        bdgs = pl.query(plQuery.str());
         if(bdgs.begin() == bdgs.end()) {
           outError("This Facing has no mountint Bar...WTF");
           return false;
@@ -287,11 +245,11 @@ public:
         std::string mountingBarTFId;
         for(auto bdg : bdgs) {
           mountingBarTFId = bdg["MFrameName"].toString();
-          mountingBarTFId =mountingBarTFId.substr(1,mountingBarTFId.size()-2);
+          mountingBarTFId = mountingBarTFId.substr(1, mountingBarTFId.size() - 2);
           break;
         }
         tf::StampedTransform mountingBar;
-        listener->lookupTransform(localFrameName_,mountingBarTFId, ros::Time(0), mountingBar);
+        listener->lookupTransform(localFrameName_, mountingBarTFId, ros::Time(0), mountingBar);
         facing.leftSeparator.setRotation(mountingBar.getRotation());
         facing.leftSeparator.setOrigin(mountingBar.getOrigin());
         facing.leftSeparator.frame_id_ = mountingBar.frame_id_;
@@ -300,14 +258,14 @@ public:
 
       //get dimenstions and product type of facing
       plQuery.str(std::string());
-      plQuery << "shelf_facing_product_type('" << facingID << "', P),"
+      plQuery << "shelf_facing_product_type('" << facing.facingId << "', P),"
               << "owl_class_properties(P,shop:articleNumberOfProduct,AN),"
-              << "comp_facingWidth('" << facingID << "',literal(type(_, W_XSD))),atom_number(W_XSD,W),"
-              << "comp_facingHeight('" << facingID << "',literal(type(_, H_XSD))),atom_number(H_XSD,H).";
+              << "comp_facingWidth('" << facing.facingId << "',literal(type(_, W_XSD))),atom_number(W_XSD,W),"
+              << "comp_facingHeight('" << facing.facingId << "',literal(type(_, H_XSD))),atom_number(H_XSD,H).";
       outInfo("Asking query: " << plQuery.str());
       bdgs = pl.query(plQuery.str());
       if(bdgs.begin() == bdgs.end()) {
-        outError("Facing: " << facingID << " has no width, height, or product type defined");
+        outError("Facing: " << facing.facingId << " has no width, height, or product type defined");
         return false;
       }
       for(auto bdg : bdgs) {
@@ -316,7 +274,7 @@ public:
         facing.productId = bdg["P"].toString();
         facing.gtin = bdg["AN"].toString();
         size_t loc = facing.gtin.find_last_of("GTIN_");
-        facing.gtin = facing.gtin.substr(loc+1,facing.gtin.size()-loc-2);
+        facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2);
       }
       //get the dimenstions of the product on the facing
       plQuery.str(std::string());
@@ -350,9 +308,7 @@ public:
     return true;
   }
 
-  void filterCloud(Facing facing/*const tf::Stamped<tf::Pose> &poseStamped,
-                   const tf::Stamped<tf::Pose> &pose2Stamped,
-                   const double &depth, std::string shelf_type, float width*/)
+  void filterCloud(Facing facing)
   {
     pcl::PassThrough<pcl::PointXYZRGBA> pass;
     float minX, minY, minZ;
@@ -399,13 +355,7 @@ public:
     pass.setFilterFieldName("z");//
     pass.setFilterLimits(minZ, maxZ);
     pass.filter(*cloudFiltered_);
-
-    //    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
-    //    sor.setInputCloud(cloudFiltered_);
-    //    sor.setMeanK(25);
-    //    sor.setStddevMulThresh(3.0);
-    //    sor.setKeepOrganized(true);
-    //    sor.filter(*cloudFiltered_);
+//    pcl::io::savePCDFile("cloud_filtered.pcd", *cloudFiltered_);
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
@@ -423,13 +373,12 @@ public:
     input_labels->width = cloudFiltered_->width;
     input_labels->points.resize(cloudFiltered_->points.size(), label);
 
-
-    pcl ::PointCloud<pcl::Label>::Ptr output_labels(new pcl::PointCloud<pcl::Label>);
+    pcl::PointCloud<pcl::Label>::Ptr output_labels(new pcl::PointCloud<pcl::Label>);
     pcl::EuclideanClusterComparator<pcl::PointXYZRGBA, pcl::Normal, pcl::Label>::Ptr ecc(new pcl::EuclideanClusterComparator<pcl::PointXYZRGBA, pcl::Normal, pcl::Label>());
     ecc->setInputCloud(cloudFiltered_);
     ecc->setLabels(input_labels);
     ecc->setExcludeLabels(ignore_labels);
-    ecc->setDistanceThreshold(0.06, true);
+    ecc->setDistanceThreshold(0.06, false);///Why is this false??? if true clustering is sometimtes weird...
     ecc->setInputNormals(cloud_normals);
     std::vector<pcl::PointIndices> cluster_i;
     pcl::OrganizedConnectedComponentSegmentation<pcl::PointXYZRGBA, pcl::Label> segmenter(ecc);
@@ -440,13 +389,13 @@ public:
 
     for(std::vector<pcl::PointIndices>::iterator it = cluster_i.begin();
         it != cluster_i.end();) {
-      if(it->indices.size() < 600)
+      if(it->indices.size() < 400)
         it = cluster_i.erase(it);
       else
         ++it;
     }
+    outInfo("Cluster Size after filtering:" << cluster_i.size());   
 
-    outInfo("Cluster Size after filtering:" << cluster_i.size());
     //if two clusters in the same y range
     std::vector<pcl::PointIndices> mergedClusterIndices;
 
@@ -468,7 +417,6 @@ public:
       if(!merged)
         mergedClusterIndices.push_back(cluster_i[i]);
     }
-
     outInfo("Found " << mergedClusterIndices.size() << " good clusters after filtering and merging!");
 
     float gminX = std::numeric_limits<float>::max(),
@@ -518,7 +466,6 @@ public:
             cluster_indices_.push_back(newIndices);
         }
       }
-      outError("THIS: " << count);
     }
 
     //overwrite all dimensions with biggest BB;
@@ -539,19 +486,7 @@ public:
       rs::Detection detection = rs::create<rs::Detection>(tcas);
       detection.source.set("ProductCounter");
       detection.name.set(facing.productId);
-
-      //      tf::Stamped<tf::Pose> pose;
-      //      pose.setOrigin(tf::Vector3(cluster_boxes[i].ptMax.x));
-      //      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-      //      pose.frame_id_ = "map";
-      //      uint64_t ts = scene.timestamp();
-      //      pose.stamp_ = ros::Time().fromNSec(ts);
-      //      rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
-      //      poseAnnotation.source.set("ShelfDetector");
-      //      poseAnnotation.world.set(rs::conversion::to(tcas, pose));
-      //      poseAnnotation.camera.set(rs::conversion::to(tcas, pose));
       hyp.annotations.append(detection);
-      //      hyp.annotations.append(poseAnnotation);
       scene.identifiables.append(hyp);
     }
   }
@@ -560,19 +495,16 @@ public:
   {
     rs::SceneCas cas(tcas);
 
-    std::string facingID = "";
-    std::string shelfType = "";
-    float distToNextSep = 0.0f;
-
-    if(!parseQuery(tcas, facingID)) return false;
     Facing facing;
-    if(getFacingInformation(facingID, facing)) {
+    if(!parseQuery(tcas, facing.facingId)) return false;
+
+    if(getFacingInformation(facing)) {
       std::lock_guard<std::mutex> lock(mtx);
-      outInfo("Facing To Scan is: " << facingID);
+      outInfo("Facing To Scan is: " << facing.facingId);
       outInfo("Separator location is: [" << facing.leftSeparator.getOrigin().x() << ","
               << facing.leftSeparator.getOrigin().y() << ","
               << facing.leftSeparator.getOrigin().z() << "]");
-      double height = 0.0, width = 0.0, depth = 0.0;
+
       //      getObjectDims(objToScan, height, width, depth);
       outInfo("height = " << facing.productDims.h << " width = " << facing.productDims.w << " depth  = " << facing.productDims.d);
 
@@ -583,69 +515,82 @@ public:
       cas.get(VIEW_CAMERA_INFO, camInfo_);
 
       try {
-        //listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, ros::Duration(2));
-        //listener->lookupTransform(localFrameName_, camInfo_.header.frame_id, /*ros::Time(0)*/camInfo_.header.stamp, camToWorld_);
-
         listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
         listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
         if(facing.leftSeparator.frame_id_ != localFrameName_) {
           listener->transformPose(localFrameName_, facing.leftSeparator, facing.leftSeparator);
           outInfo("New Separator location is: [" << facing.leftSeparator.getOrigin().x() << "," << facing.leftSeparator.getOrigin().y() << "," << facing.leftSeparator.getOrigin().z() << "]");
         }
-        if(facing.rightSeparator.frame_id_ != localFrameName_) {
+        if(facing.rightSeparator.frame_id_ != localFrameName_ && facing.shelfType != facing.ShelfType::HANGING) {
           listener->transformPose(localFrameName_, facing.rightSeparator, facing.rightSeparator);
-          outInfo("New Separator location is: [" << facing.rightSeparator.getOrigin().x() << "," << facing.rightSeparator.getOrigin().y() << "," << facing.rightSeparator.getOrigin().z() << "]");
+          outInfo("New Separator location is: [" << facing.rightSeparator.getOrigin().x() << ","
+                  << facing.rightSeparator.getOrigin().y() << ","
+                  << facing.rightSeparator.getOrigin().z() << "]");
         }
 
-        //let's find the closest separators in the current detection;
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ facing.leftSeparator, /*"map"*/ originalSeparator1PoseImageFrame_);
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0   ), */facing.rightSeparator,/* "map"*/ originalSeparator2PoseImageFrame_);
+        if(facing.shelfType == facing.ShelfType::STANDING) {
+          //let's find the closest separators in the current detection;
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0),*/ facing.leftSeparator, /*"map"*/ originalSeparator1PoseImageFrame_);
+          listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0   ), */facing.rightSeparator,/* "map"*/ originalSeparator2PoseImageFrame_);
 
-        //start fixing poses of separators
-        if(separatorPoints_->size() > 2) {
-          outInfo("Using current detection of separators to fix positions");
-          pcl::PointXYZRGBA s1, s2;
-          s1.x = facing.leftSeparator.getOrigin().x();
-          s1.y = facing.leftSeparator.getOrigin().y();
-          s1.z = facing.leftSeparator.getOrigin().z();
+          //start fixing poses of separators
+          if(separatorPoints_->size() > 2) {
+            outInfo("Using current detection of separators to fix positions");
+            pcl::PointXYZRGBA s1, s2;
+            s1.x = facing.leftSeparator.getOrigin().x();
+            s1.y = facing.leftSeparator.getOrigin().y();
+            s1.z = facing.leftSeparator.getOrigin().z();
 
-          s2.x = facing.rightSeparator.getOrigin().x();
-          s2.y = facing.rightSeparator.getOrigin().y();
-          s2.z = facing.rightSeparator.getOrigin().z();
+            s2.x = facing.rightSeparator.getOrigin().x();
+            s2.y = facing.rightSeparator.getOrigin().y();
+            s2.z = facing.rightSeparator.getOrigin().z();
 
-          pcl::search::KdTree<pcl::PointXYZRGBA>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBA>());
-          tree->setInputCloud(separatorPoints_);
-          std::vector<int> pointIdxRadiusSearch;
-          std::vector<float> pointRadiusSquaredDistance;
-          if(tree->radiusSearch(s1, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
-            outInfo("Found " << pointIdxRadiusSearch.size() << " clouse to separator 1");
-            pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
-            facing.leftSeparator.setOrigin(tf::Vector3(np.x, np.y, np.z));
-            separatorPoints_->points.erase(separatorPoints_->points.begin() + pointIdxRadiusSearch[0]);
+            pcl::search::KdTree<pcl::PointXYZRGBA>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBA>());
+            tree->setInputCloud(separatorPoints_);
+            std::vector<int> pointIdxRadiusSearch;
+            std::vector<float> pointRadiusSquaredDistance;
+            if(tree->radiusSearch(s1, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
+              outInfo("Found " << pointIdxRadiusSearch.size() << " close to separator 1");
+              pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
+              facing.leftSeparator.setOrigin(tf::Vector3(np.x, np.y, np.z));
+              separatorPoints_->points.erase(separatorPoints_->points.begin() + pointIdxRadiusSearch[0]);
+            }
+
+            tree->setInputCloud(separatorPoints_);
+            if(tree->radiusSearch(s2, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
+              outInfo("Found " << pointIdxRadiusSearch.size() << " close to separator 2");
+              pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
+              facing.rightSeparator.setOrigin(tf::Vector3(np.x, np.y, np.z));
+            }
           }
-
-          tree->setInputCloud(separatorPoints_);
-          if(tree->radiusSearch(s2, 0.04, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0) {
-            outInfo("Found " << pointIdxRadiusSearch.size() << " clouse to separator 2");
-            pcl::PointXYZRGBA np = separatorPoints_->points[pointIdxRadiusSearch[0]];
-            facing.rightSeparator.setOrigin(tf::Vector3(np.x, np.y, np.z));
-          }
+          //end fixing positions;
         }
-        //end fixing positions;
 
         listener->transformPose(camInfo_.header.frame_id, facing.leftSeparator, /*"map"*/ separatorPoseInImage_);
-        listener->transformPose(camInfo_.header.frame_id, facing.rightSeparator,/* "map"*/ nextSeparatorPoseInImage_);
+        if(facing.shelfType == facing.ShelfType::STANDING)
+          listener->transformPose(camInfo_.header.frame_id, facing.rightSeparator,/* "map"*/ nextSeparatorPoseInImage_);
 
-        tf::Stamped<tf::Pose> topRightCorner = facing.rightSeparator;
-        topRightCorner.setOrigin(tf::Vector3(facing.rightSeparator.getOrigin().x(), facing.rightSeparator.getOrigin().y(),
-                                             facing.rightSeparator.getOrigin().z() + facing.productDims.h));
+        tf::Stamped<tf::Pose> topRightCorner;
+        if(facing.shelfType == facing.ShelfType::STANDING) {
+          topRightCorner = facing.rightSeparator;
+          topRightCorner.setOrigin(tf::Vector3(facing.rightSeparator.getOrigin().x(),
+                                               facing.rightSeparator.getOrigin().y(),
+                                               facing.rightSeparator.getOrigin().z() + facing.productDims.h));
+        }
+        else {
+          topRightCorner = facing.leftSeparator;
+          topRightCorner.setOrigin(tf::Vector3(facing.leftSeparator.getOrigin().x() - facing.productDims.d / 2.0,
+                                               facing.leftSeparator.getOrigin().y(),
+                                               facing.leftSeparator.getOrigin().z() - facing.productDims.h));
+        }
+        listener->waitForTransform(camInfo_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
         listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */topRightCorner,/* "map"*/ topRightCornerInImage_);
 
         if(saveImgFiles_) {
           rect_ = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
           std::fstream fstream;
           std::stringstream filename;
-          filename <<"gtin_"<<facing.gtin<<"_" <<camInfo_.header.stamp.toNSec();
+          filename << "gtin_" << facing.gtin << "_" << camInfo_.header.stamp.toNSec();
           fstream.open(filename.str() + "_meta.json", std::fstream::out);
           fstream << "{\"dan\":" << facing.gtin << ","
                   << " \"rect\":{" << "\"x\":" << rect_.x << ",\n"
@@ -663,24 +608,14 @@ public:
         return UIMA_ERR_NONE;
       }
 
-
       Eigen::Affine3d eigenTransform;
       tf::transformTFToEigen(camToWorld_, eigenTransform);
       pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
+      *cloud_transformed_ = * cloudFiltered_;
 
-      //0.4 is shelf_depth
-      //      if(width != 0.0 && distToNextSep != 0.0)
       filterCloud(facing);
-      //depth of a shelf is given by the shelf_type
-      //      else if(distToNextSep != 0.0) {
-      ///0.22 m is the biggest height of object we consider if there is no info
-      //        filterCloud(leftSeparatorPose, rightSeparatorPose, 0.15, shelfType, width);
-      //      }
-      //      else
-      //        return false;
-      //cluster the filtered cloud and split clusters in chunks of height (on y axes)
 
-      clusterCloud(depth, cloud_normals);
+      clusterCloud(facing.productDims.d, cloud_normals);
       addToCas(tcas, facing);
       separatorPoints_->clear();
       return true;
@@ -713,7 +648,6 @@ public:
 
     return UIMA_ERR_NONE;
   }
-
 
   cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D)
   {
@@ -753,10 +687,6 @@ public:
     T.at<double>(1) = 0.0;
     T.at<double>(2) = 0.0;
 
-    std::cout << "K: " << K << std::endl;
-    std::cout << "rvec: " << rvec << std::endl;
-    std::cout << "T: " << T << std::endl;
-
     // Create zero distortion
     cv::Mat distCoeffs(4, 1, cv::DataType<double>::type);
     distCoeffs.at<double>(0) = 0;
@@ -767,7 +697,6 @@ public:
     std::vector<cv::Point2d> projectedPoints;
 
     cv::Mat rvecR(3, 1, cv::DataType<double>::type); //rodrigues rotation matrix
-    //    cv::Rodrigues(rvec,rvecR);
     rvecR.at<double>(0) = 0.0;
     rvecR.at<double>(1) = 0.0;
     rvecR.at<double>(2) = 0.0;
@@ -788,10 +717,8 @@ public:
     //THE NICE WAY
     cv::Point leftSepInImage =  projection(separatorPoseInImage_);
     cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
-
     cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_);
     cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_);
-
 
     if(leftSepInImage.y > camInfo_.height) leftSepInImage.y =  camInfo_.height - 2;
     if(rightSepInImage.y > camInfo_.height) rightSepInImage.y =  camInfo_.height - 2;
@@ -806,6 +733,7 @@ public:
 
     cv::rectangle(rgb_, rect_, cv::Scalar(0, 255, 0));
 
+    //TOOD: use image transport
     cv_bridge::CvImage outImgMsgs;
     outImgMsgs.header = camInfo_.header;
     outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
@@ -822,20 +750,22 @@ public:
 
   void fillVisualizerWithLock(pcl::visualization::PCLVisualizer &visualizer, const bool firstRun)
   {
-    const std::string &cloudname = "cloud";
+    const std::string &cloudname = "cloud_filtered";
+    const std::string &cloudTransformedname = "cloud_original";
     double pointSize = 1.0;
     if(firstRun) {
       visualizer.addPointCloud(cloudFiltered_, cloudname);
+      visualizer.addPointCloud(cloud_transformed_, cloudTransformedname);
       visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
+      visualizer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize / 2.0, cloudTransformedname);
     }
     else {
       visualizer.updatePointCloud(cloudFiltered_,  cloudname);
-      visualizer.getPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, cloudname);
+      visualizer.updatePointCloud(cloud_transformed_, cloudTransformedname);
       visualizer.removeAllShapes();
     }
+
     int idx = 0;
-
-
     for(auto &bb : cluster_boxes) {
       visualizer.addCube(bb.minPt.x, bb.maxPt.x, bb.minPt.y, bb.maxPt.y, bb.minPt.z, bb.maxPt.z, 1.0, 1.0, 1.0,
                          "box_" + std::to_string(idx));
