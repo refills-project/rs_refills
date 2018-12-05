@@ -37,8 +37,10 @@
 
 //json_prolog
 #include <json_prolog/prolog.h>
-
 #include <refills_msgs/SeparatorArray.h>
+
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/filesystem.hpp>
 
 using namespace uima;
 
@@ -99,8 +101,9 @@ private:
 
   cv::Rect rect_;
 
+  std::string folderPath_;
 public:
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false),localFrameName_(""), nodeHandle_("~"), it_(nodeHandle_)
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false), localFrameName_(""), nodeHandle_("~"), it_(nodeHandle_)
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_transformed_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -112,6 +115,20 @@ public:
 
     separatorSubscriber_ = nodeHandle_.subscribe("/separator_marker_detector_node/data_out", 50, &ProductCounter::separatorCb, this);
 
+    //create a new folder for saving images into
+    std::string packagePath = ros::package::getPath("rs_refills") + "/data_out";
+    boost::posix_time::ptime posixTime = ros::Time::now().toBoost();
+    std::string iso_time_str = boost::posix_time::to_iso_extended_string(posixTime);
+    folderPath_ = packagePath + "/" + iso_time_str;
+    outWarn(folderPath_);
+    boost::filesystem::path path(folderPath_);
+    if(!boost::filesystem::exists(path)) {
+        outInfo("Creating folder: "<<path.string());
+      boost::filesystem::create_directory(path);
+    }
+    else{
+        outWarn("How can this already exist?");
+    }
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -120,6 +137,9 @@ public:
     ctx.extractValue("external", external_);
     ctx.extractValue("use_local_frame", useLocalFrame_);
     ctx.extractValue("saveImgFiles", saveImgFiles_);
+
+
+
     return UIMA_ERR_NONE;
   }
 
@@ -355,7 +375,7 @@ public:
     pass.setFilterFieldName("z");//
     pass.setFilterLimits(minZ, maxZ);
     pass.filter(*cloudFiltered_);
-//    pcl::io::savePCDFile("cloud_filtered.pcd", *cloudFiltered_);
+    //    pcl::io::savePCDFile("cloud_filtered.pcd", *cloudFiltered_);
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
@@ -394,7 +414,7 @@ public:
       else
         ++it;
     }
-    outInfo("Cluster Size after filtering:" << cluster_i.size());   
+    outInfo("Cluster Size after filtering:" << cluster_i.size());
 
     //if two clusters in the same y range
     std::vector<pcl::PointIndices> mergedClusterIndices;
@@ -590,7 +610,7 @@ public:
           rect_ = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
           std::fstream fstream;
           std::stringstream filename;
-          filename << "gtin_" << facing.gtin << "_" << camInfo_.header.stamp.toNSec();
+          filename << folderPath_ << "/gtin_" << facing.gtin << "_" << camInfo_.header.stamp.toNSec();
           fstream.open(filename.str() + "_meta.json", std::fstream::out);
           fstream << "{\"dan\":" << facing.gtin << ","
                   << " \"rect\":{" << "\"x\":" << rect_.x << ",\n"

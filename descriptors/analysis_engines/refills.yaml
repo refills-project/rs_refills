@@ -15,4 +15,4 @@ RegionFilter:
   defaultRegions: ['shelf_system_0']
 ProductCounter:
   use_local_frame: true
- 
+  saveImgFiles: true
