@@ -15,6 +15,7 @@
   <depend>robosherlock</depend>
   <depend>refills_msgs</depend>
   <depend>json_prolog</depend>
+  <depend>refills_models</depend>
 
   <export>
   </export>

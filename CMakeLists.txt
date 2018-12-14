@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(rs_refills)
-find_package(catkin REQUIRED robosherlock refills_msgs json_prolog) 
+find_package(catkin REQUIRED robosherlock refills_msgs json_prolog refills_models) 
 find_package(PCL 1.8 REQUIRED)
 
 #need to add this so RSProcessManager from RoboSherlock has QueryInterface
@@ -65,5 +65,9 @@ target_link_libraries(rs_separatorScanner ${catkin_LIBRARIES})
 rs_add_library(rs_barcodeScanner src/BarcodeScanner.cpp)
 target_link_libraries(rs_barcodeScanner ${catkin_LIBRARIES})
 
+rs_add_library(rs_MisplacedItemDetection src/MisplacedItemDetection.cpp)
+target_link_libraries(rs_MisplacedItemDetection ${catkin_LIBRARIES})
+
 rs_add_executable(processing_engine src/run.cpp)
 target_link_libraries(processing_engine ${catkin_LIBRARIES})
+
