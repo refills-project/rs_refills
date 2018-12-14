@@ -10,26 +10,12 @@
 #include <tf/tf.h>
 
 #include <pcl/point_types.h>
-
 #include <pcl/filters/filter.h>
 #include <pcl/filters/statistical_outlier_removal.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/filters/radius_outlier_removal.h>
-#include <pcl/filters/shadowpoints.h>
-#include <pcl/filters/passthrough.h>
-
-#include <pcl/features/boundary.h>
 #include <pcl/features/organized_edge_detection.h>
-
 #include <pcl/io/pcd_io.h>
 
 #include <pcl/common/transforms.h>
-#include <pcl/sample_consensus/ransac.h>
-#include <pcl/sample_consensus/sac_model_line.h>
-#include <pcl/sample_consensus/sac_model_parallel_line.h>
-#include <pcl/ModelCoefficients.h>
-
 #include <pcl/segmentation/conditional_euclidean_clustering.h>
 
 #include <rs/types/all_types.h>
@@ -255,7 +241,7 @@ public:
 
     int idx = 0;
     for(auto c : *clusters) {
-      rs::Cluster hyp = rs::create<rs::Cluster>(tcas);
+      rs::ObjectHypothesis hyp = rs::create<rs::ObjectHypothesis>(tcas);
       rs::Detection detection = rs::create<rs::Detection>(tcas);
 
       detection.source.set("ShelfDetector");
@@ -265,7 +251,7 @@ public:
       pcl::compute3DCentroid(*cloud, c, centroid);
 
       tf::Stamped<tf::Pose> pose;
-      pose.setOrigin(tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
+      pose.setOrigin( tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
       pose.setRotation(tf::Quaternion(0, 0, 0, 1));
       pose.frame_id_ = localFrameName_;
       uint64_t ts = static_cast<uint64_t>(scene.timestamp());
@@ -290,6 +276,7 @@ public:
       outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
       pose.stamp_ = ros::Time().fromNSec(ts);
+
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
       poseAnnotation.source.set("ShelfDetector");
       poseAnnotation.world.set(rs::conversion::to(tcas, pose));
@@ -298,6 +285,7 @@ public:
       hyp.annotations.append(detection);
       hyp.annotations.append(poseAnnotation);
       scene.identifiables.append(hyp);
+
     }
   }
 

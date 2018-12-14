@@ -114,7 +114,7 @@ public:
     int idx = 0;
     for(auto c : *clusters)
     {
-      rs::Cluster hyp = rs::create<rs::Cluster>(tcas);
+      rs::ObjectHypothesis hyp = rs::create<rs::ObjectHypothesis>(tcas);
       rs::Detection detection = rs::create<rs::Detection>(tcas);
 
       detection.source.set("SeparatorScanner");
