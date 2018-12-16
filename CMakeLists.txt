@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(rs_refills)
-find_package(catkin REQUIRED robosherlock refills_msgs json_prolog refills_models) 
+find_package(catkin REQUIRED robosherlock refills_msgs json_prolog) 
 find_package(PCL 1.8 REQUIRED)
+
+find_package(refills_models QUIET)
 
 #need to add this so RSProcessManager from RoboSherlock has QueryInterface
 add_definitions(-DWITH_JSON_PROLOG)
