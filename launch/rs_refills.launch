@@ -4,7 +4,7 @@
   <!-- launch refills specific RoboSherlock -->
   <node name="RoboSherlock" pkg="rs_refills" type="processing_engine" output="screen">
     <param name="ae" type="string" value="refills"/>  
-    <param name="vis" type="boolean" value="false"/>  
+    <param name="vis" type="boolean" value="true"/>  
   </node>
 
 

@@ -1,14 +1,16 @@
 ae:
   name: refills
 fixedflow:
-  - CollectionReader
-  - ImagePreprocessor
-  - RegionFilter
-  - NormalEstimator
-  - BarcodeScanner
-  - SeparatorScanner
-  - ShelfDetector
-  - ProductCounter
+   - Trigger  
+   - MisplacedItemDetection
+#  - CollectionReader
+#  - ImagePreprocessor
+#  - RegionFilter
+#  - NormalEstimator
+#  - BarcodeScanner
+#  - SeparatorScanner
+#  - ShelfDetector
+#  - ProductCounter
 CollectionReader:
   camera_config_files: ['config_realsense_donbot.ini']
 RegionFilter:
