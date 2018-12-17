@@ -35,11 +35,13 @@ private:
 
   cv::Mat disp_;
 
-  inline static int imgIdx_ = 0;
+  int imgIdx_, modelIdx_;
   bool testMode_;
+
+  std::stringstream positiveMatch, negativeMatch;
 public:
 
-  MisplacedItemDetection(): DrawingAnnotator(__func__), testMode_(false)
+  MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false)
   {
     detector = cv::ORB::create();
   }
@@ -62,12 +64,12 @@ public:
 
   cv::Mat getMaskForModelImage(const cv::Mat &imgGrey)
   {
-      cv::Mat bin;
-      cv::threshold(imgGrey, bin, 10, 255,cv::THRESH_BINARY);
-      cv::Mat element = cv::getStructuringElement(0, cv::Size(11,11),cv::Point(5,5));
-      cv::morphologyEx(bin, bin, cv::MORPH_ERODE,element);
-//      cv::Ptr<cv::SimpleBlobDetector> = cv::SimpleBlobDetector::create();
-      return bin;
+    cv::Mat bin;
+    cv::threshold(imgGrey, bin, 10, 255, cv::THRESH_BINARY);
+    cv::Mat element = cv::getStructuringElement(0, cv::Size(11, 11), cv::Point(5, 5));
+    cv::morphologyEx(bin, bin, cv::MORPH_ERODE, element);
+    //      cv::Ptr<cv::SimpleBlobDetector> = cv::SimpleBlobDetector::create();
+    return bin;
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -169,12 +171,16 @@ public:
       }
     }
     else {
-      std::pair<std::string, std::string> &testFilePair = testFiles_[imgIdx_++];
-      imgIdx_ = imgIdx_ % testFiles_.size();
+      std::pair<std::string, std::string> &testFilePair = testFiles_[imgIdx_];
       rgb = cv::imread(testFilePair.first, cv::IMREAD_GRAYSCALE);
       readInfoFromJson(testFilePair.second, facingRect, gTinOfFacing);
       facingImg = rgb(facingRect);
     }
+
+    bfs::path savefolderPath(ros::package::getPath("rs_refills") + "/test_results/" + gTinOfFacing + "/");
+    if(!bfs::exists(savefolderPath)) boost::filesystem::create_directory(savefolderPath);
+
+    cv::GaussianBlur(facingImg, facingImg, cv::Size(5, 5), 0);
 
     std::vector<cv::KeyPoint> keypoints1, keypoints2;
     cv::Mat descriptors1, descriptors2;
@@ -182,46 +188,92 @@ public:
     //keypoints for the facing
     detector->detectAndCompute(facingImg, cv::noArray(), keypoints1, descriptors1);
 
-    cv::imwrite("facing.png", facingImg);
-
     outInfo("Detected " << keypoints1.size() << " keypoints in facjng image");
 
-    std::vector<std::string> &modelImages = gtinToImages_[gTinOfFacing];
+    std::map<std::string, std::vector<std::string> >::iterator it = gtinToImages_.begin();
+    it = std::next(it, modelIdx_++);
+    if(modelIdx_ == gtinToImages_.size()) {
+      modelIdx_ = 0;
+      imgIdx_++;
+    }
+    std::string modelGtin = it->first;
+    std::vector<std::string> &modelImages = it->second;
 
     cv::Mat modelImage;
     for(auto mi : modelImages) {
       outInfo("Gtin: " << gTinOfFacing << " model image: " << mi);
       modelImage = cv::imread(mi, cv::IMREAD_GRAYSCALE);
       cv::Mat modelMask = getMaskForModelImage(modelImage);
-//      disp_ = modelMask.clone();
-      cv::imwrite("model.png", modelImage);
+      cv::GaussianBlur(modelImage, modelImage, cv::Size(5, 5), 0);
       detector->detectAndCompute(modelImage, modelMask, keypoints2, descriptors2);
       break;
     }
-
     outInfo("Detected " << keypoints2.size() << " keypoints in model image");
 
-    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE_HAMMING);
+
+    cv::Ptr<cv::BFMatcher> matcher = cv::BFMatcher::create(cv::NORM_HAMMING, true);
     std::vector<cv::DMatch> matches;
+
+
+    outInfo("Size of descriptors: " << descriptors1.size() << " D2: " << descriptors2.size());
+
     matcher->match(descriptors1, descriptors2, matches);
     std::sort(matches.begin(), matches.end(), [](cv::DMatch a, cv::DMatch b) {
       return  a.distance < b.distance;
     });
 
-    int idx = 0 ;
-    for(auto m : matches) {
-      outInfo("Match nr" << idx++ <<" dist: "<<  m.distance);
-
-    }
     std::vector<char> mask(matches.size(), 0);
-    if(mask.size() > 50) {
-      for(int i = 0; i < 50; ++i) {
-        mask[i] = 1;
-      }
+    for(int i = 0; i < 50 && i < mask.size(); ++i) {
+      mask[i] = 1;
+    }
+
+
+    float avgDist = 0.0;
+    uint8_t mi = 1;
+    for(; mi < matches.size() && mi <= 50; ++mi) {
+      outInfo(1 - (matches[mi - 1].distance / 256));
+      avgDist += 1 - (matches[mi - 1].distance / 256);
+    }
+
+
+    std::ofstream histFile;
+    if(modelGtin == gTinOfFacing) {
+      histFile.open("01match.csv", std::ostream::out);
+    }
+    else {
+      histFile.open(savefolderPath.string() + modelGtin + ".csv", std::ostream::out);
+    }
+
+    for(auto m : matches) {
+      histFile << m.distance / 256 << ",";
+    }
+    histFile.close();
+
+    avgDist /= mi;
+    outInfo("Average dist of best 100 matches: " << avgDist);
+    if(modelGtin == gTinOfFacing) {
+      positiveMatch << avgDist << ",";
+      outError("THIS IS THE REAL MATCH");
+    }
+    else {
+      negativeMatch << avgDist << ",";
     }
 
     cv::drawMatches(facingImg, keypoints1, modelImage, keypoints2, matches, disp_, cv::Scalar::all(-1),
-                    cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+                    cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::DEFAULT);
+
+    if(imgIdx_ == testFiles_.size()) {
+      outError("DONE!!!!!!!!1");
+      std::ofstream ofp, ofn;
+      ofp.open("outpositive.csv", std::ofstream::out);
+      ofn.open("outnegative.csv", std::ofstream::out);
+      ofp << positiveMatch.str();
+      ofn << negativeMatch.str();
+      ofp.close();
+      ofn.close();
+      ros::shutdown();
+      exit(0);
+    }
 
     return UIMA_ERR_NONE;
   }
