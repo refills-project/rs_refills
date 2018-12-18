@@ -144,6 +144,7 @@ public:
     tf::Stamped<tf::Pose> poseStamped, poseBase;
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
     try {
+      listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
       listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
