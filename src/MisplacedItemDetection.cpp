@@ -117,12 +117,16 @@ public:
 
     cv::findContours(canny, contours, hierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
     outInfo("Found " << contours.size() << " contours");
+
+    if(contours.size() == 0) {
+      mask_ = cv::Mat::ones(imgGrey.rows, imgGrey.cols, CV_8U);
+      return mask_;
+    }
+
     cv::Mat newImg = cv::Mat::zeros(imgGrey.rows, imgGrey.cols, CV_8U);
-
-
     for(int idx = 0; idx < contours.size(); idx ++) {
       double area = cv::contourArea(contours[idx]);
-      if(area > 0.1 * imgGrey.cols * imgGrey.rows && hierarchy[idx][3] == -1) {
+      if(area > 0.05 * imgGrey.cols * imgGrey.rows && hierarchy[idx][3] == -1) {
         contoursToKeep.push_back(contours[idx]);
       }
     }
@@ -250,14 +254,14 @@ public:
     cv::Rect facingRect;
     std::string gTinOfFacing;
 
-    std::string testFileName="";
+    std::string testFileName = "";
+
+    std::vector<std::string> modelImages;
     if(!testMode_) {
       rs::SceneCas cas(tcas);
       rs::Scene scene = cas.getScene();
       cas.get(VIEW_COLOR_IMAGE_HD, rgb);
       std::vector<rs::ObjectHypothesis> hyps;
-      scene.identifiables.filter(hyps);
-
       for(auto &h : hyps) {
         std::vector<rs::Detection> detections;
         h.annotations.filter(detections);
@@ -272,6 +276,7 @@ public:
           rs::conversion::from(roi.roi_hires(), facingRect);
           facingImg = rgb(facingRect);
           gTinOfFacing = det.name();
+          modelImages = gtinToImages_[gTinOfFacing];
         }
       }
     }
@@ -281,10 +286,19 @@ public:
       rgb = cv::imread(testFilePair.first, cv::IMREAD_GRAYSCALE);
       readInfoFromJson(testFilePair.second, facingRect, gTinOfFacing);
       facingImg = rgb(facingRect);
+
+      std::map<std::string, std::vector<std::string> >::iterator it = gtinToImages_.begin();
+      it = std::next(it, modelIdx_++);
+      if(modelIdx_ == gtinToImages_.size()) {
+        modelIdx_ = 0;
+        imgIdx_++;
+      }
+      std::string modelGtin = it->first;
+      modelImages = it->second;
     }
 
-    bfs::path savefolderPath(ros::package::getPath("rs_refills") + "/test_results/" + gTinOfFacing + "/");
-    if(!bfs::exists(savefolderPath)) boost::filesystem::create_directory(savefolderPath);
+    //    bfs::path savefolderPath(ros::package::getPath("rs_refills") + "/test_results/" + gTinOfFacing + "/");
+    //    if(!bfs::exists(savefolderPath)) boost::filesystem::create_directory(savefolderPath);
 
     cv::Mat facingHist = calcHistogram(facingImg);
     cv::GaussianBlur(facingImg, facingImg, cv::Size(9, 9), 0);
@@ -295,17 +309,7 @@ public:
 
     //keypoints for the facing
     detector->detectAndCompute(facingImg, cv::noArray(), facingKeypoints, descriptors1);
-
-    outInfo("Detected " << facingKeypoints.size() << " keypoints in facing image:"<< testFileName);
-
-    std::map<std::string, std::vector<std::string> >::iterator it = gtinToImages_.begin();
-    it = std::next(it, modelIdx_++);
-    if(modelIdx_ == gtinToImages_.size()) {
-      modelIdx_ = 0;
-      imgIdx_++;
-    }
-    std::string modelGtin = it->first;
-    std::vector<std::string> &modelImages = it->second;
+    outInfo("Detected " << facingKeypoints.size() << " keypoints in facing image:" << testFileName);
 
     cv::Mat modelImage;
     cv::Mat modelHist;
@@ -327,62 +331,63 @@ public:
 
 
     outInfo("Size of descriptors: " << descriptors1.size() << " D2: " << descriptors2.size());
-
-    matcher->match(descriptors1, descriptors2, matches);
-    std::sort(matches.begin(), matches.end(), [](cv::DMatch a, cv::DMatch b) {
-      return  a.distance < b.distance;
-    });
-
-
-
+    if(!descriptors1.empty() && !descriptors2.empty()) {
+      matcher->match(descriptors1, descriptors2, matches);
+      std::sort(matches.begin(), matches.end(), [](cv::DMatch a, cv::DMatch b) {
+        return  a.distance < b.distance;
+      });
+    }
     std::vector<char> mask(matches.size(), 0);
-    for(int i = 0; i < 50 && i < mask.size(); ++i) {
+    for(int i = 0; i < matches.size() && matches[i].distance <= 60; ++i) {
       mask[i] = 1;
     }
 
-
     float avgDist = 0.0;
-    uint8_t mi = 1;
-    for(; mi < matches.size() && mi <= 50; ++mi) {
-//      outInfo(1 - (matches[mi - 1].distance / 256));
-      avgDist += 1 - (matches[mi - 1].distance / 256);
+    uint8_t mi = 0;
+    for(; mi < matches.size() && matches[mi].distance <= 60   ; ++mi) {
+      outInfo(matches[mi].distance);
+      avgDist += (matches[mi].distance);
       goodKp1.push_back(facingKeypoints[matches[mi].queryIdx].pt);
       goodKp2.push_back(modelKeypoints[matches[mi].trainIdx].pt);
     }
 
-    cv::Mat homograpy = cv::findHomography(goodKp1, goodKp2, CV_RANSAC);
+    cv::Mat homograpy;
+    if(!goodKp1.size() >= 4 && !goodKp1.size() >= 4) {
+      homograpy = cv::findHomography(goodKp1, goodKp2, CV_RANSAC);
+      cv::perspectiveTransform(goodKp1, transformedKps, homograpy);
+    }
 
-    cv::perspectiveTransform(goodKp1, transformedKps, homograpy);
     float sum = 0.0;
     for(int j = 0; j < transformedKps.size(); ++j) {
-       sum += std::sqrt((transformedKps[j].x - goodKp2[j].x)*(transformedKps[j].x - goodKp2[j].x)  + (transformedKps[j].y - goodKp2[j].y)*(transformedKps[j].y - goodKp2[j].y));
+      sum += std::sqrt((transformedKps[j].x - goodKp2[j].x) * (transformedKps[j].x - goodKp2[j].x)  + (transformedKps[j].y - goodKp2[j].y) * (transformedKps[j].y - goodKp2[j].y));
     }
-    sum = sum/transformedKps.size();
-    outInfo("Transform error:" <<sum);
+    sum = sum / transformedKps.size() + 1;
+    outInfo("Transform error:" << sum);
 
-    std::ofstream histFile;
-    if(modelGtin == gTinOfFacing) {
-      histFile.open(savefolderPath.string() + "01match.csv", std::ostream::out);
-    }
-    else {
-      histFile.open(savefolderPath.string() + modelGtin + ".csv", std::ostream::out);
-    }
+    //    std::ofstream histFile;
+    //    if(modelGtin == gTinOfFacing) {
+    //      histFile.open(savefolderPath.string() + "01match.csv", std::ostream::out);
+    //    }
+    //    else {
+    //      histFile.open(savefolderPath.string() + modelGtin + ".csv", std::ostream::out);
+    //    }
 
-    for(auto m : matches) {
-      histFile << m.distance / 256 << ",";
-    }
-    histFile.close();
+    //    for(auto m : matches) {
+    //      histFile << m.distance / 256 << ",";
+    //    }
+    //    histFile.close();
 
     avgDist /= mi;
     outInfo("Average dist of best 20 matches: " << avgDist);
     outInfo("Histogram correlation: " << histDist);
-    if(modelGtin == gTinOfFacing) {
-      positiveMatch << sum << ",";
-      outError("THIS IS THE REAL MATCH");
-    }
-    else {
-      negativeMatch << sum << ",";
-    }
+
+    //    if(modelGtin == gTinOfFacing) {
+    //      positiveMatch << sum << ",";
+    //      outError("THIS IS THE REAL MATCH");
+    //    }
+    //    else {
+    //      negativeMatch << sum << ",";
+    //    }
 
     cv::drawMatches(facingImg, facingKeypoints, modelImage, modelKeypoints, matches, disp_, cv::Scalar::all(-1),
                     cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
