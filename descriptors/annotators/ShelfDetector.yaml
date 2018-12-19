@@ -5,5 +5,4 @@ capabilities:
   inputs: []
   outputs: []
 parameters:
-  max_variance: 0.01
-  min_line_inliers: 40
+  shelf_max_inlier_distance: 0.08
