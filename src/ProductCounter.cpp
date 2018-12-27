@@ -475,7 +475,7 @@ public:
       }
       else {
         float step = pdepth / count;
-        outError("Split this cloud into" << count << " piceses");
+        outError("Split this cloud into " << count << " piceses");
         for(int j = 0; j < count; ++j) {
           pcl::PointIndices newIndices;
           float minY = min[1] + j * step;
@@ -529,7 +529,7 @@ public:
 
     rs::Detection detection = rs::create<rs::Detection>(tcas);
     detection.source.set("FacingDetection");
-    detection.name.set(std::string(facing.productId));
+    detection.name.set(std::string(facing.gtin));
     facingHyp.annotations.append(detection);
     scene.identifiables.append(facingHyp);
 
@@ -683,6 +683,15 @@ public:
     cv::Rect rect(std::min(bottomleftPoint.x, toprightPOint.x),
                   std::min(bottomleftPoint.y, toprightPOint.y),
                   std::fabs(bottomleftPoint.x - toprightPOint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
+    rect.x = std::max(0, rect.x);
+    rect.y = std::max(0, rect.y);
+    if((rect.x + rect.width) > rgb_.cols){
+          rect.width = rgb_.cols - rect.x;
+    }
+    if( (rect.y + rect.height) > rgb_.rows){
+          rect.height = rgb_.rows-rect.y;
+    }
+
     return rect;
   }
 
