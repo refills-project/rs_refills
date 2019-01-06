@@ -67,10 +67,6 @@ public:
   std::vector<pcl::PointIndices> label_indices_;
   std::vector<pcl::PointIndicesPtr> line_inliers_;
   std::vector<Eigen::VectorXf> line_models_;
-
-  int min_line_inliers_;
-  float max_variance_;
-
   std::mutex lockBarcode_, lockSeparator_;
 
   struct Line {
@@ -96,9 +92,10 @@ public:
 
   //other
   std::string localFrameName_;
+  float shelfmaxInlierDistance_;
 public:
 
-  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::COLOR)
+  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), dispMode(DisplayMode::COLOR),shelfmaxInlierDistance_(0.08)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -115,8 +112,7 @@ public:
   TyErrorId initialize(AnnotatorContext &ctx)
   {
     outInfo("initialize");
-    ctx.extractValue("min_line_inliers", min_line_inliers_);
-    ctx.extractValue("max_variance", max_variance_);
+    ctx.extractValue("shelf_max_inlier_distance", shelfmaxInlierDistance_);
     setAnnotatorContext(ctx);
     return UIMA_ERR_NONE;
   }
@@ -205,7 +201,7 @@ public:
 
   bool enforceZAxesSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
   {
-    if(fabs(point_a.z - point_b.z) < 0.04f)
+    if(fabs(point_a.z - point_b.z) < shelfmaxInlierDistance_)
       return (true);
     else
       return (false);
