@@ -645,6 +645,7 @@ public:
 
         facing_.imageLoc = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
         if(saveImgFiles_) {
+          rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
           std::fstream fstream;
           std::stringstream filename;
           filename << folderPath_ << "/gtin_" << facing_.gtin << "_" << camInfo_.header.stamp.toNSec();

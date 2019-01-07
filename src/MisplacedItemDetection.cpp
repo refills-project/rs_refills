@@ -234,9 +234,9 @@ public:
       break;
     }
     outInfo("Detected " << modelKeypoints.size() << " keypoints in model image");
-    double histDist = std::numeric_limits<double>::max();
+    double histSimilarity = 0.0;
     if (!modelHist.empty() && !facingHist.empty())
-         histDist = cv::compareHist(facingHist, modelHist, CV_COMP_HELLINGER);
+         histSimilarity = 1 - cv::compareHist(facingHist, modelHist, CV_COMP_HELLINGER);
 
     cv::Ptr<cv::BFMatcher> matcher = cv::BFMatcher::create(cv::NORM_HAMMING, true);
     std::vector<cv::DMatch> matches;
@@ -261,7 +261,6 @@ public:
       avgDist += (1 - static_cast<float>(matches[mi].distance / 256));
     }
     avgDist /= mi;
-    outInfo("Average dist of best 50s matches: " << avgDist);
     mi = 0;
     for(; mi < matches.size() && matches[mi].distance <= 60   ; ++mi) {
       goodKp1.push_back(facingKeypoints[matches[mi].queryIdx].pt);
@@ -282,8 +281,13 @@ public:
 
     cv::drawMatches(facingImg, facingKeypoints, modelImage, modelKeypoints, matches, disp_, cv::Scalar::all(-1),
                     cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+
+    outInfo("Histogram similarity (1 - Hellinger): " << histSimilarity);
+    outInfo("Average dist of best 50s matches: " << avgDist);
+
+    double measure = (avgDist + histSimilarity) / 2;
+    outInfo("Final Similarity Measure is: "<<measure);
     return avgDist;
-    outInfo("Histogram correlation: " << histDist);
   }
 
   cv::Mat calcHistogram(cv::Mat &img, cv::Mat mask = cv::Mat(), bool color = false)
