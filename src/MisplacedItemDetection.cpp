@@ -236,7 +236,7 @@ public:
     outInfo("Detected " << modelKeypoints.size() << " keypoints in model image");
     double histDist = std::numeric_limits<double>::max();
     if (!modelHist.empty() && !facingHist.empty())
-         histDist = cv::compareHist(facingHist, modelHist, CV_COMP_CORREL);
+         histDist = cv::compareHist(facingHist, modelHist, CV_COMP_HELLINGER);
 
     cv::Ptr<cv::BFMatcher> matcher = cv::BFMatcher::create(cv::NORM_HAMMING, true);
     std::vector<cv::DMatch> matches;
@@ -282,7 +282,7 @@ public:
 
     cv::drawMatches(facingImg, facingKeypoints, modelImage, modelKeypoints, matches, disp_, cv::Scalar::all(-1),
                     cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-
+    return avgDist;
     outInfo("Histogram correlation: " << histDist);
   }
 

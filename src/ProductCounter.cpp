@@ -180,6 +180,7 @@ public:
 
   bool parseQuery(CAS &tcas, std::string &facingID)// tf::Stamped<tf::Pose> &pose, std::string &shelf_type, float &facingWidth)
   {
+    MEASURE_TIME;
     rs::SceneCas cas(tcas);
     rs::Query query = rs::create<rs::Query>(tcas);
     if(!cas.getFS("QUERY", query)) return false;
@@ -207,6 +208,7 @@ public:
   bool getFacingInformation(Facing &facing)
   {
     //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
+    MEASURE_TIME;
     std::stringstream plQuery;
     json_prolog::Prolog pl;
     plQuery << "shelf_facing(F,'" << facing.facingId << "'),shelf_layer_standing(F).";
@@ -337,6 +339,7 @@ public:
 
   void filterCloud(Facing facing)
   {
+    MEASURE_TIME;
     pcl::PassThrough<pcl::PointXYZRGBA> pass;
     float minX, minY, minZ;
     float maxX, maxY, maxZ;
@@ -388,6 +391,7 @@ public:
 
   void clusterCloud(const double &obj_depth, const pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals)
   {
+    MEASURE_TIME;
     pcl::PointCloud<pcl::Label>::Ptr input_labels(new pcl::PointCloud<pcl::Label>);
     pcl::Label label;
     label.label = 0;
@@ -504,24 +508,25 @@ public:
     }
   }
 
-  void addToCas(CAS &tcas, Facing facing)
+  void  addToCas(CAS &tcas, Facing facing)
   {
+    MEASURE_TIME;
     rs::SceneCas cas(tcas);
     rs::Scene scene = cas.getScene();
     rs::ObjectHypothesis facingHyp = rs::create<rs::ObjectHypothesis>(tcas);
 
     //to make feature extraction happy;
     cv::Rect rect_hires = facing_.imageLoc;
-    rect_hires.height *=1.5;
+    rect_hires.height *= 1.5;
     rect_hires.width *= 1.5;
     rect_hires.x *= 1.5;
     rect_hires.y *= 1.5;
 
     rs::ImageROI roi = rs::create<rs::ImageROI>(tcas);
     roi.roi(rs::conversion::to(tcas, facing_.imageLoc));
-    roi.roi_hires(rs::conversion::to(tcas,rect_hires));
-    cv::Mat mask = cv::Mat::ones(cv::Size(facing_.imageLoc.size()),CV_8U);
-    cv::Mat mask_hires =cv::Mat::ones(cv::Size(rect_hires.size()),CV_8U);
+    roi.roi_hires(rs::conversion::to(tcas, rect_hires));
+    cv::Mat mask = cv::Mat::ones(cv::Size(facing_.imageLoc.size()), CV_8U);
+    cv::Mat mask_hires = cv::Mat::ones(cv::Size(rect_hires.size()), CV_8U);
     roi.mask(rs::conversion::to(tcas, mask));
     roi.mask_hires(rs::conversion::to(tcas, mask_hires));
 
@@ -685,11 +690,11 @@ public:
                   std::fabs(bottomleftPoint.x - toprightPOint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
     rect.x = std::max(0, rect.x);
     rect.y = std::max(0, rect.y);
-    if((rect.x + rect.width) > rgb_.cols){
-          rect.width = rgb_.cols - rect.x;
+    if((rect.x + rect.width) > rgb_.cols) {
+      rect.width = rgb_.cols - rect.x;
     }
-    if( (rect.y + rect.height) > rgb_.rows){
-          rect.height = rgb_.rows-rect.y;
+    if((rect.y + rect.height) > rgb_.rows) {
+      rect.height = rgb_.rows - rect.y;
     }
 
     return rect;
