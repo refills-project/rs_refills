@@ -243,25 +243,21 @@ public:
 
       detection.source.set("ShelfDetector");
 
-
-      Eigen::Vector4f centroid;
-      pcl::compute3DCentroid(*cloud, c, centroid);
-
-      tf::Stamped<tf::Pose> pose;
-      pose.setOrigin( tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
-      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-      pose.frame_id_ = localFrameName_;
       uint64_t ts = static_cast<uint64_t>(scene.timestamp());
 
-
+      pcl::PointIndices barcodeIndices;
+      pcl::PointIndices separatorIndices;
       int bCount = 0, sCount = 0 ;
-      std::for_each(c.indices.begin(), c.indices.end(), [&cloud, &bCount, &sCount](int n) {
+      std::for_each(c.indices.begin(), c.indices.end(), [&cloud, &bCount, &sCount, &barcodeIndices, &separatorIndices](int n) {
         if(cloud->points[n].label == 1) {
           bCount++;
+          barcodeIndices.indices.push_back(n);
           //this is dangerous...there could be a shelf where we don't see any separators...
         }
-        else
+        else{
+            separatorIndices.indices.push_back(n);
           sCount++;
+        }
       });
 
       std::string layerType = "standing";
@@ -271,7 +267,25 @@ public:
         layerType = "rack";
 
       outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
+       outInfo("Separator in cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
+
+
+      Eigen::Vector4f centroid,centroidSep,centroidBar;
+      if(!barcodeIndices.indices.empty() && separatorIndices.indices.empty())
+      {
+
+          pcl::compute3DCentroid(*cloud, barcodeIndices,centroidBar);
+          pcl::compute3DCentroid(*cloud, separatorIndices,centroidSep);
+          centroid= (centroidBar + centroidSep)/2;
+      }
+      else{
+      pcl::compute3DCentroid(*cloud, c, centroid);}
+
+      tf::Stamped<tf::Pose> pose;
+      pose.setOrigin( tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
+      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
+      pose.frame_id_ = localFrameName_;
       pose.stamp_ = ros::Time().fromNSec(ts);
 
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);
