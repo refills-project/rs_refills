@@ -267,7 +267,7 @@ public:
         layerType = "rack";
 
       outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
-       outInfo("Separator in cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
+//       outInfo("Separator in cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
 
 
