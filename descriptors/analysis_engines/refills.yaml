@@ -1,16 +1,17 @@
 ae:
   name: refills
 fixedflow:
-   - Trigger  
-   - MisplacedItemDetection
-#  - CollectionReader
-#  - ImagePreprocessor
-#  - RegionFilter
-#  - NormalEstimator
-#  - BarcodeScanner
-#  - SeparatorScanner
-#  - ShelfDetector
-#  - ProductCounter
+#   - Trigger  
+  - CollectionReader
+  - ImagePreprocessor
+  - RegionFilter
+  - NormalEstimator
+  - BarcodeScanner
+  - SeparatorScanner
+  - ShelfDetector
+  - ProductCounter
+  - MisplacedItemDetection
+  - StorageWriter
 CollectionReader:
   camera_config_files: ['config_realsense_donbot.ini']
 RegionFilter:
@@ -18,3 +19,8 @@ RegionFilter:
 ProductCounter:
   use_local_frame: true
   saveImgFiles: true
+StorageWriter:
+  stroagedb: 'rs_log'
+  newUniqueDB: true 
+MisplacedItemDetection:
+  testMode: false

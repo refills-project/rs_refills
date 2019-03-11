@@ -33,7 +33,7 @@ private:
 
   cv::Ptr<cv::ORB> detector;
 
-  cv::Mat disp_;
+  cv::Mat disp_, model_;
 
   int imgIdx_, modelIdx_;
   bool testMode_;
@@ -44,7 +44,8 @@ private:
     MASK,
     BIN,
     MATCHES,
-    HIST
+    HIST,
+    MODEL
   } displayMode;
 
   cv::Mat canny_, bin_, mask_, hist_;
@@ -55,6 +56,13 @@ public:
   MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(BIN)
   {
     detector = cv::ORB::create();
+    canny_ = cv::Mat::zeros(640, 480, CV_8U);
+    bin_ = cv::Mat::zeros(640, 480, CV_8U);
+    mask_ = cv::Mat::zeros(640, 480, CV_8U);
+    hist_ = cv::Mat::zeros(640, 480, CV_8UC3);
+    disp_ = cv::Mat::zeros(640, 480, CV_8UC3);
+    model_ = cv::Mat::zeros(640, 480, CV_8UC3);
+
   }
 
   bool callbackKey(const int key, const Source source)
@@ -72,6 +80,10 @@ public:
     case 'M':
       displayMode = MASK;
       return true;
+    case 'n':
+    case 'N':
+      displayMode = MODEL;
+      return true;
     case 'O':
     case 'o':
       displayMode = MATCHES;
@@ -84,26 +96,31 @@ public:
     return false;
   }
 
-  void readInfoFromJson(const std::string &pathToJson, cv::Rect &rect, std::string &gtin)
+  bool readInfoFromJson(const std::string &pathToJson, cv::Rect &rect, std::string &gtin)
   {
     std::ifstream ifs(pathToJson);
     rapidjson::IStreamWrapper isw(ifs);
     rapidjson::Document d;
     d.ParseStream(isw);
 
-    if(d.HasMember("rect")) {
+    if(d.IsObject() && d.HasMember("rect")) {
       rect.x =   d["rect"]["x"].GetInt();
       rect.y = d["rect"]["y"].GetInt();
       rect.height  = d["rect"]["h"].GetInt();
       rect.width = d["rect"]["w"].GetInt();
+      gtin = std::to_string(d["dan"].GetInt64());
+      return true;
     }
-    gtin = std::to_string(d["dan"].GetInt64());
+    else {
+      outWarn(pathToJson << " is an empty file perhaps?");
+      return false;
+    }
   }
 
   cv::Mat getMaskForModelImage(const cv::Mat &img)
   {
-    cv::Mat bin, canny,imgGrey;
-    cv::cvtColor(img,imgGrey, CV_BGR2GRAY);
+    cv::Mat bin, canny, imgGrey;
+    cv::cvtColor(img, imgGrey, CV_BGR2GRAY);
     cv::threshold(imgGrey, bin, 10, 255, cv::THRESH_BINARY);
     cv::Mat element = cv::getStructuringElement(0, cv::Size(11, 11), cv::Point(5, 5));
     cv::morphologyEx(bin, bin, cv::MORPH_ERODE, element);
@@ -127,7 +144,7 @@ public:
     cv::Mat newImg = cv::Mat::zeros(imgGrey.rows, imgGrey.cols, CV_8U);
     for(int idx = 0; idx < contours.size(); idx ++) {
       double area = cv::contourArea(contours[idx]);
-      if(area > 0.05 * imgGrey.cols * imgGrey.rows && hierarchy[idx][3] == -1) {
+      if(area > 0.10 * imgGrey.cols * imgGrey.rows && hierarchy[idx][3] == -1) {
         contoursToKeep.push_back(contours[idx]);
       }
     }
@@ -159,7 +176,7 @@ public:
             if(it2->second.Type() == YAML::NodeType::Map) {
               std::string pathToImageFile, imageFileName;
               imageFileName = it2->second["lowres_filename_png"].as<std::string>();
-              pathToImageFile = it2->second["lowres_model_path"].as<std::string>();
+              pathToImageFile = it2->second["model_path"].as<std::string>();
               gtinToImages_[gtin].push_back(pathToRefillsModels + "/models/" + pathToImageFile + "/" + imageFileName);
             }
           }
@@ -206,112 +223,157 @@ public:
    */
   double matchModelToFacing(cv::Mat facingImg, std::vector<std::string> modelImages)
   {
-      cv::Mat facingHist = calcHistogram(facingImg);
-      cv::GaussianBlur(facingImg, facingImg, cv::Size(9, 9), 0);
+//    cv::normalize(facingImg, facingImg);
+    cv::GaussianBlur(facingImg, facingImg, cv::Size(9, 9), 0);
 
-      std::vector<cv::KeyPoint> facingKeypoints, modelKeypoints;
-      std::vector<cv::Point2f> goodKp1, goodKp2, transformedKps;
-      cv::Mat descriptors1, descriptors2;
+    cv::Mat facingHist = calcHistogram(facingImg, cv::Mat(), true);
 
-      //keypoints for the facing
-      detector->detectAndCompute(facingImg, cv::noArray(), facingKeypoints, descriptors1);
-      outInfo("Detected " << facingKeypoints.size() << " keypoints in facing image");
+    std::vector<cv::KeyPoint> facingKeypoints, modelKeypoints;
+    std::vector<cv::Point2f> goodKp1, goodKp2, transformedKps;
+    cv::Mat descriptors1, descriptors2;
 
-      cv::Mat modelImage;
-      cv::Mat modelHist;
-      for(auto mi : modelImages) {
-        modelImage = cv::imread(mi, cv::IMREAD_COLOR);
-        cv::resize(modelImage,modelImage,cv::Size(0, 0),0.75,0.75, cv::INTER_AREA);
-        cv::Mat modelMask = getMaskForModelImage(modelImage);
-        modelHist = calcHistogram(modelImage, modelMask);
-        cv::GaussianBlur(modelImage, modelImage, cv::Size(9, 9), 0);
-        detector->detectAndCompute(modelImage, modelMask, modelKeypoints, descriptors2);
-        break;
+    //keypoints for the facing
+    detector->detectAndCompute(facingImg, cv::noArray(), facingKeypoints, descriptors1);
+    outInfo("Detected " << facingKeypoints.size() << " keypoints in facing image");
+
+    cv::Mat modelImage;
+    cv::Mat modelHist;
+    for(std::string &mi : modelImages) {
+      outInfo("Comparing against mode image located at: " << mi);
+      modelImage = cv::imread(mi, cv::IMREAD_ANYCOLOR);
+      if(modelImage.type() == CV_8UC4 || modelImage.type() == CV_64FC4) {
+        outInfo("uint with 4 uint");
+        cv::Mat  channels[4];
+        std::vector<cv::Mat> rgb;
+        cv::split(modelImage, channels);
+        rgb.push_back(channels[0]);
+        rgb.push_back(channels[1]);
+        rgb.push_back(channels[2]);
+        cv::merge(rgb, modelImage);
+        outInfo("merged");
       }
-      outInfo("Detected " << modelKeypoints.size() << " keypoints in model image");
+      model_ = modelImage.clone();
+      //      cv::resize(modelImage, modelImage, cv::Size(0, 0), 0.75, 0.75, cv::INTER_AREA);
+      cv::Mat modelMask = getMaskForModelImage(modelImage);
+      modelHist = calcHistogram(modelImage, modelMask, true);
+      cv::GaussianBlur(modelImage, modelImage, cv::Size(9, 9), 0);
+      detector->detectAndCompute(modelImage, modelMask, modelKeypoints, descriptors2);
+      break;
+    }
+    outInfo("Detected " << modelKeypoints.size() << " keypoints in model image");
+    double histSimilarity = 0.0;
+    if(!modelHist.empty() && !facingHist.empty())
+      histSimilarity = 1 - cv::compareHist(facingHist, modelHist, CV_COMP_HELLINGER);
 
-      double histDist = cv::compareHist(facingHist, modelHist, CV_COMP_CORREL);
+    cv::Ptr<cv::BFMatcher> matcher = cv::BFMatcher::create(cv::NORM_HAMMING, true);
+    std::vector<cv::DMatch> matches;
 
-      cv::Ptr<cv::BFMatcher> matcher = cv::BFMatcher::create(cv::NORM_HAMMING, true);
-      std::vector<cv::DMatch> matches;
+    outInfo("Size of descriptors: " << descriptors1.size() << " D2: " << descriptors2.size());
+    if(!descriptors1.empty() && !descriptors2.empty()) {
+      matcher->match(descriptors1, descriptors2, matches);
+      std::sort(matches.begin(), matches.end(), [](cv::DMatch a, cv::DMatch b) {
+        return  a.distance < b.distance;
+      });
+    }
+    if (matches.empty()) return 0.0;
+    
+    std::vector<char> mask(matches.size(), 0);
+    for(int i = 0; i < matches.size() && matches[i].distance <= 60; ++i) {
+      mask[i] = 1;
+    }
 
+    float avgDist = 0.0;
+    uint8_t mi = 0;
 
-      outInfo("Size of descriptors: " << descriptors1.size() << " D2: " << descriptors2.size());
-      if(!descriptors1.empty() && !descriptors2.empty()) {
-        matcher->match(descriptors1, descriptors2, matches);
-        std::sort(matches.begin(), matches.end(), [](cv::DMatch a, cv::DMatch b) {
-          return  a.distance < b.distance;
-        });
+    for(; mi < matches.size() && mi < 50; ++mi) {
+      avgDist += (1 - static_cast<float>(matches[mi].distance / 256));
+    }
+    if (mi!=0) avgDist /= mi;
+    mi = 0;
+    for(; mi < matches.size() && matches[mi].distance <= 60   ; ++mi) {
+      goodKp1.push_back(facingKeypoints[matches[mi].queryIdx].pt);
+      goodKp2.push_back(modelKeypoints[matches[mi].trainIdx].pt);
+    }
+
+    cv::Mat homograpy;
+    if(goodKp1.size() >= 4 && goodKp1.size() >= 4) {
+      homograpy = cv::findHomography(goodKp1, goodKp2, CV_RANSAC);
+      cv::perspectiveTransform(goodKp1, transformedKps, homograpy);
+      float sum = 0.0;
+      for(int j = 0; j < transformedKps.size(); ++j) {
+        sum += std::sqrt((transformedKps[j].x - goodKp2[j].x) * (transformedKps[j].x - goodKp2[j].x)  + (transformedKps[j].y - goodKp2[j].y) * (transformedKps[j].y - goodKp2[j].y));
       }
-      std::vector<char> mask(matches.size(), 0);
-      for(int i = 0; i < matches.size() && matches[i].distance <= 60; ++i) {
-        mask[i] = 1;
-      }
+      sum = sum / transformedKps.size() + 1;
+      outInfo("Transform error:" << sum);
+    }
 
-      float avgDist = 0.0;
-      uint8_t mi = 0;
-      for(; mi < matches.size() && matches[mi].distance <= 60   ; ++mi) {
-        outInfo(matches[mi].distance);
-        avgDist += (matches[mi].distance);
-        goodKp1.push_back(facingKeypoints[matches[mi].queryIdx].pt);
-        goodKp2.push_back(modelKeypoints[matches[mi].trainIdx].pt);
-      }
-      avgDist /= mi;
+    cv::drawMatches(facingImg, facingKeypoints, modelImage, modelKeypoints, matches, disp_, cv::Scalar::all(-1),
+                    cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 
-      cv::Mat homograpy;
-      if(goodKp1.size() >= 4 && goodKp1.size() >= 4) {
-        homograpy = cv::findHomography(goodKp1, goodKp2, CV_RANSAC);
-        cv::perspectiveTransform(goodKp1, transformedKps, homograpy);
-        float sum = 0.0;
-        for(int j = 0; j < transformedKps.size(); ++j) {
-          sum += std::sqrt((transformedKps[j].x - goodKp2[j].x) * (transformedKps[j].x - goodKp2[j].x)  + (transformedKps[j].y - goodKp2[j].y) * (transformedKps[j].y - goodKp2[j].y));
-        }
-        sum = sum / transformedKps.size() + 1;
-        outInfo("Transform error:" << sum);
-      }
+    outInfo("Histogram similarity (1 - Hellinger): " << histSimilarity);
+    outInfo("Average dist of best 50s matches: " << avgDist);
 
-      cv::drawMatches(facingImg, facingKeypoints, modelImage, modelKeypoints, matches, disp_, cv::Scalar::all(-1),
-                      cv::Scalar::all(-1), mask, cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
-      outInfo("Average dist of best 20 matches: " << avgDist);
-      outInfo("Histogram correlation: " << histDist);
+    double measure = (avgDist + histSimilarity) / 2;
+    outInfo("Final Similarity Measure is: " << measure);
+    return avgDist;
+  }
+
+  cv::Mat calcHistogram(cv::Mat &img, cv::Mat mask = cv::Mat(), bool color = false)
+  {
+    cv::Mat histModel, histModelNormed;
+    if(color) {
+      cv::Mat imgHsv;
+      cv::cvtColor(img, imgHsv, CV_BGR2HSV);
+      int h_bins = 16;
+      int s_bins = 8;
+      int histSize[] = { h_bins, s_bins };
+      float h_ranges[] = { 0, 256 };
+      float s_ranges[] = { 0, 180 };
+      const float *ranges[] = { h_ranges, s_ranges };
+      int channels[] = { 0, 1};
+      cv::calcHist(&imgHsv, 1, channels, mask, histModel, 2, histSize, ranges, true, false);
+      cv::normalize(histModel, histModelNormed, 0, 1.0, cv::NORM_MINMAX, -1, cv::Mat());
+      outInfo(histModel.size());
+//      hist_.push_back(histImage);
+
+      return histModelNormed;
+    }
+    else {
+      cv::Mat imgGrey;
+      cv::cvtColor(img, imgGrey, CV_BGR2GRAY);
+      /// Establish the number of bins
+      int histSize = 64;
+      /// Set the ranges ( for B,G,R) )
+      float range[] = { 0, 256 } ;
+      const float *histRange = { range };
+
+
+      cv::calcHist(&imgGrey, 1, 0, mask, histModel, 1, &histSize, &histRange, true, false);
+      cv::normalize(histModel, histModelNormed, 0, 1.0, cv::NORM_MINMAX, -1, cv::Mat());
+
+
+      int hist_w = 512;
+      int hist_h = 100;
+      int bin_w = cvRound((double) hist_w / histSize);
+      cv::normalize(histModel, histModel, 0, hist_h, cv::NORM_MINMAX, -1, cv::Mat());
+
+      cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
+
+      for(int i = 1; i < histSize; i++) {
+        cv::line(histImage, cv::Point(bin_w * (i - 1), hist_h - cvRound(histModel.at<float>(i - 1))),
+                 cv::Point(bin_w * (i), hist_h - cvRound(histModel.at<float>(i))),
+                 cv::Scalar(255, 0, 0), 2, 8, 0);
+
+      }
+      hist_.push_back(histImage);
+      return histModelNormed;
+    }
   }
 
   TyErrorId destroy()
   {
     outInfo("destroy");
     return UIMA_ERR_NONE;
-  }
-
-  cv::Mat calcHistogram(cv::Mat &img, cv::Mat mask = cv::Mat())
-  {
-    cv::Mat imgGrey;
-    cv::cvtColor(img, imgGrey, CV_BGR2GRAY);
-    /// Establish the number of bins
-    int histSize = 64;
-    /// Set the ranges ( for B,G,R) )
-    float range[] = { 0, 256 } ;
-    const float *histRange = { range };
-
-    cv::Mat histModel, histModelNormed;
-    cv::calcHist(&imgGrey, 1, 0, mask, histModel, 1, &histSize, &histRange, true, false);
-    cv::normalize(histModel, histModelNormed, 0, 1.0, cv::NORM_MINMAX, -1, cv::Mat());
-
-
-    int hist_w = 512;
-    int hist_h = 100;
-    int bin_w = cvRound((double) hist_w / histSize);
-    cv::normalize(histModel, histModel, 0, hist_h, cv::NORM_MINMAX, -1, cv::Mat());
-
-    cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
-
-    for(int i = 1; i < histSize; i++) {
-      cv::line(histImage, cv::Point(bin_w * (i - 1), hist_h - cvRound(histModel.at<float>(i - 1))),
-               cv::Point(bin_w * (i), hist_h - cvRound(histModel.at<float>(i))),
-               cv::Scalar(255, 0, 0), 2, 8, 0);
-
-    }
-    hist_.push_back(histImage);
-    return histModelNormed;
   }
 
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
@@ -330,23 +392,32 @@ public:
     if(!testMode_) {
       rs::SceneCas cas(tcas);
       rs::Scene scene = cas.getScene();
-      cas.get(VIEW_COLOR_IMAGE_HD, rgb);
+      cas.get(VIEW_COLOR_IMAGE, rgb);
       std::vector<rs::ObjectHypothesis> hyps;
+      scene.identifiables.filter(hyps);
+      outInfo("Found " << hyps.size() << " hypotheses.");
       for(auto &h : hyps) {
         std::vector<rs::Detection> detections;
         h.annotations.filter(detections);
         if(detections.empty()) continue;
 
         rs::Detection &det = detections[0];
-        det.confidence.set(0.77);
+        //        det.confidence.set(0.77);
 
         if(det.source()  == "FacingDetection") {
+          outInfo("Found a hypothesis with a facing detection");
           rs::ImageROI roi = h.rois();
-
-          rs::conversion::from(roi.roi_hires(), facingRect);
+          rs::conversion::from(roi.roi(), facingRect);
+          outInfo("Rect of facing: " << facingRect);
           facingImg = rgb(facingRect);
           gTinOfFacing = det.name();
+          outInfo("Gtin of Facing: " << gTinOfFacing);
           modelImages = gtinToImages_[gTinOfFacing];
+          for(auto mI : modelImages)
+            outInfo("Model Image fot Gtin found  at: " << mI);
+	  double score = 0.0;
+          score = matchModelToFacing(facingImg, modelImages);
+          det.confidence.set(score);
         }
       }
     }
@@ -354,20 +425,26 @@ public:
       std::pair<std::string, std::string> &testFilePair = testFiles_[imgIdx_];
       testFileName = testFilePair.first;
       rgb = cv::imread(testFilePair.first);// cv::IMREAD_GRAYSCALE);
-      readInfoFromJson(testFilePair.second, facingRect, gTinOfFacing);
+      if(!readInfoFromJson(testFilePair.second, facingRect, gTinOfFacing)) {
+        imgIdx_++;
+        return 0.0;
+      }
       facingImg = rgb(facingRect);
 
-      std::map<std::string, std::vector<std::string> >::iterator it = gtinToImages_.begin();
-      it = std::next(it, modelIdx_++);
-      if(modelIdx_ == gtinToImages_.size()) {
-        modelIdx_ = 0;
-        imgIdx_++;
-      }
-      std::string modelGtin = it->first;
-      modelImages = it->second;
+      //      std::map<std::string, std::vector<std::string> >::iterator it = gtinToImages_.begin();
+      //   readInfoFromJson   it = std::next(it, modelIdx_++);
+      //      if(modelIdx_ == gtinToImages_.size()) {
+      //        modelIdx_ = 0;
+      //        imgIdx_++;
+      //      }
+      //      std::string modelGtin = it->first;
+      //      modelImages = it->second;
+      modelImages = gtinToImages_[gTinOfFacing];
+      imgIdx_++;
+      double  score = matchModelToFacing(facingImg, modelImages);
     }
 
-    double  score = matchModelToFacing(facingImg,modelImages);
+
     //    bfs::path savefolderPath(ros::package::getPath("rs_refills") + "/test_results/" + gTinOfFacing + "/");
     //    if(!bfs::exists(savefolderPath)) boost::filesystem::create_directory(savefolderPath);
 
@@ -396,7 +473,7 @@ public:
     //    }
 
 
-    if(imgIdx_ == testFiles_.size()) {
+    if(imgIdx_ == testFiles_.size() && testMode_) {
       outError("DONE!!!!!!!!1");
       std::ofstream ofp, ofn;
       ofp.open("outpositive.csv", std::ofstream::out);
@@ -429,6 +506,9 @@ public:
       break;
     case HIST:
       disp = hist_.clone();
+      break;
+    case MODEL:
+      disp = model_.clone();
       break;
     default:
       disp = disp_.clone();

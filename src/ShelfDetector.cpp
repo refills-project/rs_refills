@@ -67,10 +67,6 @@ public:
   std::vector<pcl::PointIndices> label_indices_;
   std::vector<pcl::PointIndicesPtr> line_inliers_;
   std::vector<Eigen::VectorXf> line_models_;
-
-  int min_line_inliers_;
-  float max_variance_;
-
   std::mutex lockBarcode_, lockSeparator_;
 
   struct Line {
@@ -96,9 +92,10 @@ public:
 
   //other
   std::string localFrameName_;
+  float shelfmaxInlierDistance_;
 public:
 
-  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), min_line_inliers_(50), max_variance_(0.01), dispMode(DisplayMode::COLOR)
+  ShelfDetector(): DrawingAnnotator(__func__), nh_("~"), dispMode(DisplayMode::COLOR),shelfmaxInlierDistance_(0.08)
   {
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -115,8 +112,7 @@ public:
   TyErrorId initialize(AnnotatorContext &ctx)
   {
     outInfo("initialize");
-    ctx.extractValue("min_line_inliers", min_line_inliers_);
-    ctx.extractValue("max_variance", max_variance_);
+    ctx.extractValue("shelf_max_inlier_distance", shelfmaxInlierDistance_);
     setAnnotatorContext(ctx);
     return UIMA_ERR_NONE;
   }
@@ -205,7 +201,7 @@ public:
 
   bool enforceZAxesSimilarity(const pcl::PointXYZRGBL &point_a, const pcl::PointXYZRGBL &point_b, float squared_distance)
   {
-    if(fabs(point_a.z - point_b.z) < 0.04f)
+    if(fabs(point_a.z - point_b.z) < shelfmaxInlierDistance_)
       return (true);
     else
       return (false);
@@ -247,25 +243,21 @@ public:
 
       detection.source.set("ShelfDetector");
 
-
-      Eigen::Vector4f centroid;
-      pcl::compute3DCentroid(*cloud, c, centroid);
-
-      tf::Stamped<tf::Pose> pose;
-      pose.setOrigin( tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
-      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
-      pose.frame_id_ = localFrameName_;
       uint64_t ts = static_cast<uint64_t>(scene.timestamp());
 
-
+      pcl::PointIndices barcodeIndices;
+      pcl::PointIndices separatorIndices;
       int bCount = 0, sCount = 0 ;
-      std::for_each(c.indices.begin(), c.indices.end(), [&cloud, &bCount, &sCount](int n) {
+      std::for_each(c.indices.begin(), c.indices.end(), [&cloud, &bCount, &sCount, &barcodeIndices, &separatorIndices](int n) {
         if(cloud->points[n].label == 1) {
           bCount++;
+          barcodeIndices.indices.push_back(n);
           //this is dangerous...there could be a shelf where we don't see any separators...
         }
-        else
+        else{
+            separatorIndices.indices.push_back(n);
           sCount++;
+        }
       });
 
       std::string layerType = "standing";
@@ -275,7 +267,25 @@ public:
         layerType = "rack";
 
       outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
+//       outInfo("Separator in cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
+
+
+      Eigen::Vector4f centroid,centroidSep,centroidBar;
+      if(!barcodeIndices.indices.empty() && separatorIndices.indices.empty())
+      {
+
+          pcl::compute3DCentroid(*cloud, barcodeIndices,centroidBar);
+          pcl::compute3DCentroid(*cloud, separatorIndices,centroidSep);
+          centroid= (centroidBar + centroidSep)/2;
+      }
+      else{
+      pcl::compute3DCentroid(*cloud, c, centroid);}
+
+      tf::Stamped<tf::Pose> pose;
+      pose.setOrigin( tf::Vector3(static_cast<double>(centroid[0]), static_cast<double>(centroid[1]), static_cast<double>(centroid[2])));
+      pose.setRotation(tf::Quaternion(0, 0, 0, 1));
+      pose.frame_id_ = localFrameName_;
       pose.stamp_ = ros::Time().fromNSec(ts);
 
       rs::PoseAnnotation poseAnnotation  = rs::create<rs::PoseAnnotation>(tcas);

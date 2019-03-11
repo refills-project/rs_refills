@@ -88,6 +88,7 @@ public:
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("ShelfDetector");
+         // newPipelineOrder.push_back("StorageWriter");
         }
         if(type == "facing")
         {
@@ -96,6 +97,7 @@ public:
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("SeparatorScanner");
           newPipelineOrder.push_back("BarcodeScanner");
+         // newPipelineOrder.push_back("StorageWriter");
         }
         if(type == "barcode")
         {
@@ -103,6 +105,7 @@ public:
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("BarcodeScanner");
+         // newPipelineOrder.push_back("StorageWriter");
         }
         if(type == "separator")
         {
@@ -110,6 +113,7 @@ public:
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("SeparatorScanner");
+          //newPipelineOrder.push_back("StorageWriter");
         }
       }
     }
@@ -120,6 +124,8 @@ public:
       newPipelineOrder.push_back("ImagePreprocessor");
       newPipelineOrder.push_back("NormalEstimator");
       newPipelineOrder.push_back("ProductCounter");
+      newPipelineOrder.push_back("MisplacedItemDetection");
+     // newPipelineOrder.push_back("StorageWriter");
     }
 
     {
