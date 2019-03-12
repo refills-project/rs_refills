@@ -5,6 +5,7 @@
 #define __RS_REFILLS_ALL_TYPES_H__
 
 #include <rs_refills/types/type_definitions.h>
+#include <rs_refills/types/refills_types.h>
 
 
 #endif /* __RS_REFILLS_ALL_TYPES_H__ */
