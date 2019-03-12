@@ -123,6 +123,7 @@ public:
       newPipelineOrder.push_back("CollectionReader");
       newPipelineOrder.push_back("ImagePreprocessor");
       newPipelineOrder.push_back("NormalEstimator");
+      newPipelineOrder.push_back("FacingAnnotator");
       newPipelineOrder.push_back("ProductCounter");
       newPipelineOrder.push_back("MisplacedItemDetection");
      // newPipelineOrder.push_back("StorageWriter");

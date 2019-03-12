@@ -1,6 +1,8 @@
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
 
+#include <ros/package.h>
+
 #include <refills_msgs/SeparatorArray.h>
 
 //RS
@@ -35,15 +37,42 @@ private:
   std::shared_ptr<tf::TransformListener> listener_;
 
   std::mutex mtx_;
+  bool save_img_files_;
   int idx_;
+  std::string folder_path_;
 
   std::string local_frame_name_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr separator_points_;
+  tf::StampedTransform camToWorld_;
+
+  //for visualization purposes
+  cv::Mat dispImg_;
+
+  sensor_msgs::CameraInfo cam_info_;
+  tf::Stamped<tf::Pose> left_separator_pose_in_image_, right_separator_pose_in_image_;
+  tf::Stamped<tf::Pose> original_left_separator_pose_img_frame_, original_right_separator_pose_img_frame_;
+  tf::Stamped<tf::Pose> top_right_corner_in_image_;
 
 public:
 
-  FacingAnnotator(): DrawingAnnotator(__func__), nh_("~"), idx_(0)
+  FacingAnnotator(): DrawingAnnotator(__func__), nh_("~"),save_img_files_(false), idx_(0)
   {
+    //create a new folder for saving images into
+    std::string packagePath = ros::package::getPath("rs_refills") + "/data_out";
+    boost::posix_time::ptime posixTime = ros::Time::now().toBoost();
+    std::string iso_time_str = boost::posix_time::to_iso_extended_string(posixTime);
+    folder_path_ = packagePath + "/" + iso_time_str;
+    outWarn(folder_path_);
+    boost::filesystem::path path(folder_path_);
+    if(!boost::filesystem::exists(path))
+    {
+      outInfo("Creating folder: " << path.string());
+      boost::filesystem::create_directory(path);
+    }
+    else
+    {
+      outWarn("How can this already exist?");
+    }
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -51,6 +80,8 @@ public:
     outInfo("initialize");
     separator_subscriber_ = nh_.subscribe("/separator_marker_detector_node/data_out", 50, &FacingAnnotator::separatorCb, this);
     listener_ = std::make_shared<tf::TransformListener>(nh_, ros::Duration(10.0));
+    ctx.extractValue("saveImgFiles", save_img_files_);
+
     return UIMA_ERR_NONE;
   }
 
@@ -146,6 +177,13 @@ public:
         listener_->waitForTransform(local_frame_name_, rightSepTFId, ros::Time(0), ros::Duration(2.0));
         listener_->lookupTransform(local_frame_name_, rightSepTFId, ros::Time(0), rightSep);
 
+        tf::Stamped<tf::Pose> temp1, temp2;
+        temp1.setData(leftSep);
+        temp2.setData(rightSep);
+        listener_->transformPose(cam_info_.header.frame_id, temp1, original_left_separator_pose_img_frame_);
+        listener_->transformPose(cam_info_.header.frame_id, temp2, original_right_separator_pose_img_frame_);
+
+        //try to fix separator positions based on current detections;
         if(separator_points_->size() > 2)
         {
           outInfo("Using current detection of separators to fix positions");
@@ -179,6 +217,52 @@ public:
             rightSep.setOrigin(tf::Vector3(np.x, np.y, np.z));
           }
         }
+        temp1.setData(leftSep);
+        temp2.setData(rightSep);
+        listener_->transformPose(cam_info_.header.frame_id, temp1, left_separator_pose_in_image_);
+        listener_->transformPose(cam_info_.header.frame_id, temp2, right_separator_pose_in_image_);
+
+        tf::Stamped<tf::Pose> topRightCorner;
+        if(shelf_type == rs::Facing::ShelfType::STANDING)
+        {
+          topRightCorner.setData(rightSep);
+          topRightCorner.setOrigin(tf::Vector3(rightSep.getOrigin().x(),
+                                               rightSep.getOrigin().y(),
+                                               rightSep.getOrigin().z() + facing.height()));
+        }
+        else
+        {
+          topRightCorner.setData(leftSep);
+          topRightCorner.setOrigin(tf::Vector3(leftSep.getOrigin().x() - facing.depth() / 2.0,
+                                               leftSep.getOrigin().y(),
+                                               leftSep.getOrigin().z() - facing.height()));
+        }
+
+        listener_->waitForTransform(cam_info_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
+        listener_->transformPose(cam_info_.header.frame_id,topRightCorner, top_right_corner_in_image_);
+
+        cv::Rect facing_roi = calcRectInImage(left_separator_pose_in_image_, top_right_corner_in_image_);
+
+        if(save_img_files_)
+        {
+          rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
+          std::fstream fstream;
+          std::stringstream filename;
+          filename << folder_path_ << "/gtin_" << facing.productId() << "_" << cam_info_.header.stamp.toNSec();
+          fstream.open(filename.str() + "_meta.json", std::fstream::out);
+          fstream << "{\"dan\":" << facing.productId() << ","
+                  << " \"rect\":{" << "\"x\":" << facing_roi.x << ",\n"
+                  << "\"y\":" <<facing_roi.y << ",\n"
+                  << "\"h\":" <<facing_roi.height << ",\n"
+                  << "\"w\":" <<facing_roi.width << "}\n";
+          fstream << "}";
+          fstream.flush();
+          fstream.close();
+          cv::imwrite(filename.str() + "_rgb.png", dispImg_);
+        }
+
+        cv::rectangle(dispImg_, facing_roi, cv::Scalar(0, 255, 0));
+        facing.facing_roi.set(rs::conversion::to(tcas, facing_roi));
         leftSepPose.setData(leftSep);
         rightSepPose.setData(rightSep);
       }
@@ -243,8 +327,13 @@ public:
     return true;
   }
 
-
-  bool parseQuery(CAS &tcas, std::string &facing_ID)// tf::Stamped<tf::Pose> &pose, std::string &shelf_type, float &facingWidth)
+  /**
+   * @brief parseQuery
+   * @param[in] tcas tha cas.
+   * @param[out] facing_ID id of the facing that we extract
+   * @return true on success, false if query is not appropriate
+   */
+  bool parseQuery(CAS &tcas, std::string &facing_ID)
   {
     MEASURE_TIME;
     rs::SceneCas cas(tcas);
@@ -274,13 +363,15 @@ public:
     return true;
   }
 
-
   TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
     outInfo("process start");
     rs::StopWatch clock;
     rs::SceneCas cas(tcas);
     rs::Scene scene = cas.getScene();
+
+    cas.get(VIEW_CAMERA_INFO, cam_info_);
+    cas.get(VIEW_COLOR_IMAGE, dispImg_);
 
     std::string facing_id;
     if(!parseQuery(tcas, facing_id))
@@ -301,8 +392,97 @@ public:
     return UIMA_ERR_NONE;
   }
 
+  cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D, const sensor_msgs::CameraInfo &cam_info)
+  {
+    std::vector<cv::Point3d> objectPoints;
+    objectPoints.push_back(cv::Point3d(pose3D.getOrigin().x(), pose3D.getOrigin().y(), pose3D.getOrigin().z()));
+
+    // Create the known projection matrix
+
+    cv::Mat P(3, 4, cv::DataType<double>::type);
+    //    P.data = *camInfo_.P.data();
+    P.at<double>(0, 0) = cam_info.P[0];
+    P.at<double>(1, 0) = cam_info.P[4];
+    P.at<double>(2, 0) = cam_info.P[8];
+
+    P.at<double>(0, 1) = cam_info.P[1];
+    P.at<double>(1, 1) = cam_info.P[5];
+    P.at<double>(2, 1) = cam_info.P[9];
+
+    P.at<double>(0, 2) = cam_info.P[2];
+    P.at<double>(1, 2) = cam_info.P[6];
+    P.at<double>(2, 2) = cam_info.P[10];
+
+    P.at<double>(0, 3) = cam_info.P[3];
+    P.at<double>(1, 3) = cam_info.P[7];
+    P.at<double>(2, 3) = cam_info.P[11];
+
+    // Decompose the projection matrix into:
+    cv::Mat K(3, 3, cv::DataType<double>::type); // intrinsic parameter matrix
+    cv::Mat rvec(3, 3, cv::DataType<double>::type); // rotation matrix
+    cv::Mat Thomogeneous(4, 1, cv::DataType<double>::type); // translation vector
+
+    cv::decomposeProjectionMatrix(P, K, rvec, Thomogeneous);
+
+    cv::Mat T(3, 1, cv::DataType<double>::type); // translation vector
+    //    cv::convertPointsHomogeneous(Thomogeneous, T);
+    T.at<double>(0) = 0.0;
+    T.at<double>(1) = 0.0;
+    T.at<double>(2) = 0.0;
+
+    // Create zero distortion
+    cv::Mat distCoeffs(4, 1, cv::DataType<double>::type);
+    distCoeffs.at<double>(0) = 0;
+    distCoeffs.at<double>(1) = 0;
+    distCoeffs.at<double>(2) = 0;
+    distCoeffs.at<double>(3) = 0;
+
+    std::vector<cv::Point2d> projectedPoints;
+
+    cv::Mat rvecR(3, 1, cv::DataType<double>::type); //rodrigues rotation matrix
+    rvecR.at<double>(0) = 0.0;
+    rvecR.at<double>(1) = 0.0;
+    rvecR.at<double>(2) = 0.0;
+
+    cv::projectPoints(objectPoints, rvecR, T, K, distCoeffs, projectedPoints);
+    return projectedPoints[0];
+  }
+
+  cv::Rect calcRectInImage(tf::Stamped<tf::Pose> separatorPose, tf::Stamped<tf::Pose> topRightCorner)
+  {
+    cv::Point2d bottomleftPoint = projection(separatorPose,cam_info_);
+    cv::Point2d toprightPOint = projection(topRightCorner,cam_info_);
+    cv::Rect rect(std::min(bottomleftPoint.x, toprightPOint.x),
+                  std::min(bottomleftPoint.y, toprightPOint.y),
+                  std::fabs(bottomleftPoint.x - toprightPOint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
+    rect.x = std::max(0, rect.x);
+    rect.y = std::max(0, rect.y);
+    if((rect.x + rect.width) > dispImg_.cols)
+      rect.width = dispImg_.cols - rect.x;
+    if((rect.y + rect.height) > dispImg_.rows)
+      rect.height = dispImg_.rows - rect.y;
+    return rect;
+  }
+
+
   void drawWithLock(cv::Mat &disp)
   {
+    cv::Point leftSepInImage =  projection(left_separator_pose_in_image_,cam_info_);
+    cv::Point rightSepInImage =  projection(right_separator_pose_in_image_,cam_info_);
+    cv::Point origLeftSepInImage =  projection(original_left_separator_pose_img_frame_,cam_info_);
+    cv::Point origRightSepInImage =  projection(original_right_separator_pose_img_frame_,cam_info_);
+
+    if(leftSepInImage.y > cam_info_.height) leftSepInImage.y =  cam_info_.height - 2;
+    if(rightSepInImage.y > cam_info_.height) rightSepInImage.y =  cam_info_.height - 2;
+
+    outInfo("Left Sep image coords: " << leftSepInImage);
+    outInfo("Right Sep image coords: " << rightSepInImage);
+    cv::circle(dispImg_, leftSepInImage, 5, cv::Scalar(255, 0, 0), 3);
+    cv::circle(dispImg_, rightSepInImage, 5, cv::Scalar(255, 0, 0), 3);
+
+    cv::circle(dispImg_, origLeftSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+    cv::circle(dispImg_, origRightSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+    disp = dispImg_.clone();
 
   }
 

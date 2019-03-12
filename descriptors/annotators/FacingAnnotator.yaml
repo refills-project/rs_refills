@@ -1,7 +1,7 @@
 annotator:
   implementation: rs_FacingAnnotator
 parameters:
-  test_param: 0.01
+  saveImgFiles: false
 capabilities:
   inputs: {}
   outputs: {}
