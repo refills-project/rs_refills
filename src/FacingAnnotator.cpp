@@ -82,6 +82,7 @@ public:
     listener_ = std::make_shared<tf::TransformListener>(nh_, ros::Duration(10.0));
     ctx.extractValue("saveImgFiles", save_img_files_);
 
+    separator_points_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     return UIMA_ERR_NONE;
   }
 
@@ -140,7 +141,6 @@ public:
       {
         outInfo("Standing shelf");
         shelf_type = rs::Facing::ShelfType::STANDING;
-
       }
 
       facing.shelfType.set(rs::getTextFromEnum(static_cast<int>(shelf_type)));
@@ -177,24 +177,31 @@ public:
         listener_->waitForTransform(local_frame_name_, rightSepTFId, ros::Time(0), ros::Duration(2.0));
         listener_->lookupTransform(local_frame_name_, rightSepTFId, ros::Time(0), rightSep);
 
-        tf::Stamped<tf::Pose> temp1, temp2;
-        temp1.setData(leftSep);
-        temp2.setData(rightSep);
-        listener_->transformPose(cam_info_.header.frame_id, temp1, original_left_separator_pose_img_frame_);
-        listener_->transformPose(cam_info_.header.frame_id, temp2, original_right_separator_pose_img_frame_);
+        leftSepPose.setRotation(leftSep.getRotation());
+        leftSepPose.setOrigin(leftSep.getOrigin());
+        leftSepPose.frame_id_ = leftSep.frame_id_;
+        leftSepPose.stamp_ = leftSep.stamp_;
+
+        rightSepPose.setRotation(rightSep.getRotation());
+        rightSepPose.setOrigin(rightSep.getOrigin());
+        rightSepPose.frame_id_ = rightSep.frame_id_;
+        rightSepPose.stamp_ = rightSep.stamp_;
+
+        listener_->transformPose(cam_info_.header.frame_id, leftSepPose, original_left_separator_pose_img_frame_);
+        listener_->transformPose(cam_info_.header.frame_id, rightSepPose, original_right_separator_pose_img_frame_);
 
         //try to fix separator positions based on current detections;
         if(separator_points_->size() > 2)
         {
           outInfo("Using current detection of separators to fix positions");
           pcl::PointXYZRGBA s1, s2;
-          s1.x = static_cast<float>(leftSep.getOrigin().x());
-          s1.y = static_cast<float>(leftSep.getOrigin().y());
-          s1.z = static_cast<float>(leftSep.getOrigin().z());
+          s1.x = static_cast<float>(leftSepPose.getOrigin().x());
+          s1.y = static_cast<float>(leftSepPose.getOrigin().y());
+          s1.z = static_cast<float>(leftSepPose.getOrigin().z());
 
-          s2.x = static_cast<float>(rightSep.getOrigin().x());
-          s2.y = static_cast<float>(rightSep.getOrigin().y());
-          s2.z = static_cast<float>(rightSep.getOrigin().z());
+          s2.x = static_cast<float>(rightSepPose.getOrigin().x());
+          s2.y = static_cast<float>(rightSepPose.getOrigin().y());
+          s2.z = static_cast<float>(rightSepPose.getOrigin().z());
 
           pcl::PointCloud<pcl::PointXYZRGBA>::Ptr sep_points_copy(new pcl::PointCloud<pcl::PointXYZRGBA>(*separator_points_));
           pcl::search::KdTree<pcl::PointXYZRGBA>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGBA>());
@@ -205,7 +212,7 @@ public:
           {
             outInfo("Found " << pointIdxRadiusSearch.size() << " close to separator 1");
             pcl::PointXYZRGBA np = sep_points_copy->points[pointIdxRadiusSearch[0]];
-            leftSep.setOrigin(tf::Vector3(np.x, np.y, np.z));
+            leftSepPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
             sep_points_copy->points.erase(sep_points_copy->points.begin() + pointIdxRadiusSearch[0]);
           }
 
@@ -214,28 +221,27 @@ public:
           {
             outInfo("Found " << pointIdxRadiusSearch.size() << " close to separator 2");
             pcl::PointXYZRGBA np = sep_points_copy->points[pointIdxRadiusSearch[0]];
-            rightSep.setOrigin(tf::Vector3(np.x, np.y, np.z));
+            rightSepPose.setOrigin(tf::Vector3(np.x, np.y, np.z));
           }
         }
-        temp1.setData(leftSep);
-        temp2.setData(rightSep);
-        listener_->transformPose(cam_info_.header.frame_id, temp1, left_separator_pose_in_image_);
-        listener_->transformPose(cam_info_.header.frame_id, temp2, right_separator_pose_in_image_);
+
+        listener_->transformPose(cam_info_.header.frame_id, leftSepPose, left_separator_pose_in_image_);
+        listener_->transformPose(cam_info_.header.frame_id, rightSepPose, right_separator_pose_in_image_);
 
         tf::Stamped<tf::Pose> topRightCorner;
         if(shelf_type == rs::Facing::ShelfType::STANDING)
         {
-          topRightCorner.setData(rightSep);
-          topRightCorner.setOrigin(tf::Vector3(rightSep.getOrigin().x(),
-                                               rightSep.getOrigin().y(),
-                                               rightSep.getOrigin().z() + facing.height()));
+          topRightCorner  = rightSepPose;
+          topRightCorner.setOrigin(tf::Vector3(rightSepPose.getOrigin().x(),
+                                               rightSepPose.getOrigin().y(),
+                                               rightSepPose.getOrigin().z() + facing.height()));
         }
         else
         {
-          topRightCorner.setData(leftSep);
-          topRightCorner.setOrigin(tf::Vector3(leftSep.getOrigin().x() - facing.depth() / 2.0,
-                                               leftSep.getOrigin().y(),
-                                               leftSep.getOrigin().z() - facing.height()));
+          topRightCorner = leftSepPose;
+          topRightCorner.setOrigin(tf::Vector3(leftSepPose.getOrigin().x() - facing.depth() / 2.0,
+                                               leftSepPose.getOrigin().y(),
+                                               leftSepPose.getOrigin().z() - facing.height()));
         }
 
         listener_->waitForTransform(cam_info_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
@@ -262,9 +268,20 @@ public:
         }
 
         cv::rectangle(dispImg_, facing_roi, cv::Scalar(0, 255, 0));
-        facing.facing_roi.set(rs::conversion::to(tcas, facing_roi));
-        leftSepPose.setData(leftSep);
-        rightSepPose.setData(rightSep);
+
+        cv::Rect facing_roi_hires = facing_roi;
+        facing_roi_hires.height *= 1.5;
+        facing_roi_hires.width *= 1.5;
+        facing_roi_hires.x *= 1.5;
+        facing_roi_hires.y *= 1.5;
+
+        cv::Mat mask, mask_hires;
+        mask = cv::Mat::ones(facing_roi.size(),CV_8U);
+        mask_hires = cv::Mat::ones(facing_roi_hires.size(),CV_8U);
+        rs::ImageROI image_roi = rs::create<rs::ImageROI>(tcas);
+        image_roi.roi.set(rs::conversion::to(tcas, facing_roi));
+        image_roi.roi_hires.set(rs::conversion::to(tcas,facing_roi_hires));
+        facing.rois.set(image_roi);
       }
       else if(shelf_type == rs::Facing::ShelfType::HANGING)
       {

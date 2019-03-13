@@ -9,6 +9,7 @@ fixedflow:
   - BarcodeScanner
   - SeparatorScanner
   - ShelfDetector
+  - FacingAnnotator
   - ProductCounter
   - MisplacedItemDetection
   - StorageWriter

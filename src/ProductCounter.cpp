@@ -261,7 +261,6 @@ public:
     pass.setFilterFieldName("z");//
     pass.setFilterLimits(minZ, maxZ);
     pass.filter(*cloudFiltered_);
-    //    pcl::io::savePCDFile("cloud_filtered.pcd", *cloudFiltered_);
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
@@ -394,47 +393,6 @@ public:
     return cluster_indices_.size();
   }
 
-  void addToCas(CAS &tcas, rs::Facing facing)
-  {
-    MEASURE_TIME;
-    rs::SceneCas cas(tcas);
-    rs::Scene scene = cas.getScene();
-    rs::ObjectHypothesis facingHyp = rs::create<rs::ObjectHypothesis>(tcas);
-
-    //to make feature extraction happy;
-    cv::Rect rect_hires = facing_.imageLoc;
-    rect_hires.height *= 1.5;
-    rect_hires.width *= 1.5;
-    rect_hires.x *= 1.5;
-    rect_hires.y *= 1.5;
-
-    rs::ImageROI roi = rs::create<rs::ImageROI>(tcas);
-    roi.roi(rs::conversion::to(tcas, facing_.imageLoc));
-    roi.roi_hires(rs::conversion::to(tcas, rect_hires));
-    cv::Mat mask = cv::Mat::ones(cv::Size(facing_.imageLoc.size()), CV_8U);
-    cv::Mat mask_hires = cv::Mat::ones(cv::Size(rect_hires.size()), CV_8U);
-    roi.mask(rs::conversion::to(tcas, mask));
-    roi.mask_hires(rs::conversion::to(tcas, mask_hires));
-
-    facingHyp.rois(roi);
-
-    rs::Detection detection = rs::create<rs::Detection>(tcas);
-    detection.source.set("FacingDetection");
-    detection.name.set(std::string(facing.gtin));
-    facingHyp.annotations.append(detection);
-    scene.identifiables.append(facingHyp);
-
-    for(int i = 0; i < cluster_indices_.size(); ++i)
-    {
-      rs::ObjectHypothesis hyp = rs::create<rs::ObjectHypothesis>(tcas);
-      rs::Detection detection = rs::create<rs::Detection>(tcas);
-      detection.source.set("ProductCounter");
-      detection.name.set(facing.productId);
-      hyp.annotations.append(detection);
-      scene.identifiables.append(hyp);
-    }
-  }
-
   bool countObject(CAS &tcas)
   {
     rs::SceneCas cas(tcas);
@@ -445,8 +403,11 @@ public:
 
     for(rs_refills::ProductFacing &product_facing : facings)
     {
-
       rs::Facing facing_;
+      cv::Rect facing_roi;
+      rs::conversion::from(product_facing.rois().roi(),facing_roi);
+      cv::rectangle(rgb_, facing_roi, cv::Scalar(0, 255, 0));
+
       if(getProductInformation(product_facing,facing_))
       {
         std::lock_guard<std::mutex> lock(mtx);
@@ -516,6 +477,7 @@ public:
     cluster_boxes.clear();
 
     countObject(tcas);
+
     drawOnImage();
 
     return UIMA_ERR_NONE;

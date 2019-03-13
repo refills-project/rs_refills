@@ -54,7 +54,7 @@
 class RSRefillsProcessManager: public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait,  rs::KnowledgeEngine::KnowledgeEngineType::JSON_PROLOG, ".")
+  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait,  rs::KnowledgeEngine::KnowledgeEngineType::SWI_PROLOG, ".")
   {
 
   }
@@ -137,42 +137,47 @@ public:
         if(val.HasMember("command"))
         {
           std::string  command = val["command"].GetString();
+          engine_->resetCas();
+          rs::Query query = rs::create<rs::Query>(*engine_->getCas());
+          query.query.set(req);
+          rs::SceneCas sceneCas(*engine_->getCas());
+          sceneCas.set("QUERY", query);
           if(command == "start")
           {
-            engine_->resetCas();
-            rs::Query query = rs::create<rs::Query>(*engine_->getCas());
-            query.query.set(req);
-            rs::SceneCas sceneCas(*engine_->getCas());
-            sceneCas.set("QUERY", query);
             engine_->setContinuousPipelineOrder(newPipelineOrder);
+            engine_->setPipelineOrdering(newPipelineOrder);
+            engine_->processOnce();
             waitForServiceCall_ = false;
             return true;
           }
           else if(command == "stop")
           {
             waitForServiceCall_ = true;
-            engine_->setNextPipeline(newPipelineOrder);
+            engine_->setPipelineOrdering(newPipelineOrder);
             engine_->processOnce(res, req);
+            rs::ObjectDesignatorFactory dw(engine_->getCas(),rs::ObjectDesignatorFactory::Mode::CLUSTER);
+            dw.getObjectDesignators(res);
             return true;
           }
         }
       }
+
       else if(queryType == QueryInterface::QueryType::DETECT)
       {
-
         engine_->resetCas();
         rs::Query query = rs::create<rs::Query>(*engine_->getCas());
         query.query.set(req);
         rs::SceneCas sceneCas(*engine_->getCas());
         sceneCas.set("QUERY", query);
-        engine_->setNextPipeline(newPipelineOrder);
+        engine_->setPipelineOrdering(newPipelineOrder);
         engine_->processOnce(res, req);
+        rs::ObjectDesignatorFactory dw(engine_->getCas(),rs::ObjectDesignatorFactory::Mode::CLUSTER);
+        dw.getObjectDesignators(res);
         return true;
       }
       else
       {
         outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
-        processing_mutex_.unlock();
         return false;
       }
     }
