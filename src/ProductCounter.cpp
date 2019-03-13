@@ -127,8 +127,6 @@ public:
     if(doc.HasMember("detect"))
     {
       rapidjson::Value &dQuery = doc["detect"];
-      //      if(!dQuery.HasMember("facing")) return false;
-      //      facingID = dQuery["facing"].GetString();
       if(!dQuery.HasMember("location")) return false;
       localFrameName_ = dQuery["location"].GetString();
     }
@@ -267,7 +265,7 @@ public:
     outInfo("Size of cloud after filtering: " << cloudFiltered_->size());
   }
 
-  void clusterCloud(const double &obj_depth, const pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals)
+  int clusterCloud(const double &obj_depth, const pcl::PointCloud<pcl::Normal>::Ptr &cloud_normals)
   {
     MEASURE_TIME;
     pcl::PointCloud<pcl::Label>::Ptr input_labels(new pcl::PointCloud<pcl::Label>);
@@ -393,6 +391,7 @@ public:
       bb.minPt.x = gminX;
       bb.minPt.z = gminZ;
     }
+    return cluster_indices_.size();
   }
 
   void addToCas(CAS &tcas, rs::Facing facing)
@@ -444,7 +443,7 @@ public:
     std::vector<rs_refills::ProductFacing> facings;
     scene.identifiables.filter(facings);
 
-    for(rs_refills::ProductFacing product_facing : facings)
+    for(rs_refills::ProductFacing &product_facing : facings)
     {
 
       rs::Facing facing_;
@@ -495,8 +494,11 @@ public:
 
         filterCloud(facing_);
 
-        clusterCloud(facing_.productDims.d, cloud_normals);
-        addToCas(tcas, facing_);
+        int count = clusterCloud(facing_.productDims.d, cloud_normals);
+        rs_refills::ProductCount prod_count = rs::create<rs_refills::ProductCount>(tcas);
+        prod_count.product_count.set(count);
+        product_facing.annotations.append(prod_count);
+//        addToCas(tcas, facing_);
       }
     }
     separatorPoints_->clear();
