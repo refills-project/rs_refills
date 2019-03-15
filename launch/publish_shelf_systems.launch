@@ -1,6 +1,6 @@
 <launch>
-<node pkg="tf" type="static_transform_publisher" name="shelf_system_0" args="0.645 -0.59 0 0 0 0 1  /map /shelf_system_0  50"/>
-<node pkg="tf" type="static_transform_publisher" name="shelf_system_1" args="1.645 -0.59 0 0 0 0 1  /map /shelf_system_1  50"/>
-<node pkg="tf" type="static_transform_publisher" name="shelf_system_2" args="2.645 -0.59 0 0 0 0 1  /map /shelf_system_2  50"/>
-<node pkg="tf" type="static_transform_publisher" name="shelf_system_3" args="3.645 -0.59 0 0 0 0 1  /map /shelf_system_3  50"/>
+<node pkg="tf2_ros" type="static_transform_publisher" name="shelf_system_0" args="0.645 -0.59 0 0 0 0 1  /map /shelf_system_0" />
+<node pkg="tf2_ros" type="static_transform_publisher" name="shelf_system_1" args="1.645 -0.59 0 0 0 0 1  /map /shelf_system_1"/>
+<node pkg="tf2_ros" type="static_transform_publisher" name="shelf_system_2" args="2.645 -0.59 0 0 0 0 1  /map /shelf_system_2"/>
+<node pkg="tf2_ros" type="static_transform_publisher" name="shelf_system_3" args="3.645 -0.59 0 0 0 0 1  /map /shelf_system_3"/>
 </launch>
