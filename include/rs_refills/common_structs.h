@@ -3,6 +3,7 @@
 
 #include <tf/tf.h>
 #include <opencv2/opencv.hpp>
+#include <tf/transform_listener.h>
 
 namespace rs
 {

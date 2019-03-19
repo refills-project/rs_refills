@@ -9,6 +9,8 @@
 
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>
+#include <rs/io/TFListenerProxy.h>
+
 #include <tf/tf.h>
 
 
@@ -34,12 +36,14 @@ private:
   ros::NodeHandle nh_;
   tf::StampedTransform camToWorld_;
   sensor_msgs::CameraInfo camInfo_;
-  tf::TransformListener *listener;
 
-  ros::Subscriber barcodeSubscriber_;
+
+  rs::TFListenerProxy tf_proxy_;
+
+  ros::Subscriber barcode_subscriber_;
   std::vector<std::string> barcodes;
 
-  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr barcodePoints_;
+  pcl::PointCloud<pcl::PointXYZRGBL>::Ptr barcode_points_;
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_, dispCloud_;
 
   std::mutex lockBarcode_;
@@ -51,11 +55,10 @@ public:
 
   BarcodeScanner(): DrawingAnnotator(__func__), nh_("~")
   {
-    barcodePoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
+    barcode_points_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
 
-    listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
   void barcodeAggregator(const refills_msgs::BarcodePtr &msg)
@@ -65,7 +68,7 @@ public:
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
     try
     {
-      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      tf_proxy_.listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
@@ -80,7 +83,7 @@ public:
         pt.label = barcodes.size();
         barcodes.push_back(msg->barcode);
       }
-      barcodePoints_->points.push_back(pt);
+      barcode_points_->points.push_back(pt);
     }
     catch(tf::TransformException ex)
     {
@@ -209,12 +212,12 @@ public:
           std::string command = jsonQuery["scan"]["command"].GetString();
           if(command == "stop")
           {
-            barcodeSubscriber_.shutdown();
+            barcode_subscriber_.shutdown();
             reset = true;
           }
           if(command == "start")
           {
-            barcodeSubscriber_ = nh_.subscribe("/barcode/pose", 50, &BarcodeScanner::barcodeAggregator, this);
+            barcode_subscriber_ = nh_.subscribe("/barcode/pose", 50, &BarcodeScanner::barcodeAggregator, this);
           }
         }
       }
@@ -225,11 +228,11 @@ public:
       outInfo("STOP received!");
 
       pcl::IndicesClustersPtr clusters(new pcl::IndicesClusters);
-      clusterPoints(barcodePoints_, clusters);
-      createResultsAndToCas(tcas, barcodePoints_, clusters);
+      clusterPoints(barcode_points_, clusters);
+      createResultsAndToCas(tcas, barcode_points_, clusters);
 
       dispCloud_->points.clear();
-      for(auto p : barcodePoints_->points)
+      for(auto p : barcode_points_->points)
       {
         pcl::PointXYZRGBA pt;
         pt.x = p.x;
@@ -248,12 +251,12 @@ public:
         }
       }
 
-      barcodePoints_->points.clear();
+      barcode_points_->points.clear();
       localFrameName_ = "";
     }
     else
     {
-      outInfo("separators found: :" << barcodePoints_->points.size());
+      outInfo("separators found: :" << barcode_points_->points.size());
     }
 
     return UIMA_ERR_NONE;

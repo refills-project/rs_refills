@@ -8,9 +8,8 @@
 #include <rs/utils/common.h>
 
 #include <tf_conversions/tf_eigen.h>
-#include <tf/transform_listener.h>
 #include <tf/tf.h>
-
+#include <rs/io/TFListenerProxy.h>
 
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -34,7 +33,8 @@ private:
   ros::NodeHandle nh_;
   tf::StampedTransform camToWorld_;
   sensor_msgs::CameraInfo camInfo_;
-  tf::TransformListener *listener;
+
+  rs::TFListenerProxy tf_proxy_;
 
   ros::Subscriber separatorSubscriber_;
 
@@ -53,8 +53,6 @@ public:
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     dispCloud_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
-
-    listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
   void separatorAggregator(const refills_msgs::SeparatorArrayPtr &msg)
@@ -66,7 +64,7 @@ public:
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
       try
       {
-        listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+        tf_proxy_.listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
         pcl::PointXYZRGBA pt;
         pt.x = poseBase.getOrigin().x();

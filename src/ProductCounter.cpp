@@ -30,8 +30,7 @@
 
 //tf
 #include <tf_conversions/tf_eigen.h>
-#include <tf/transform_listener.h>
-
+#include <rs/io/TFListenerProxy.h>
 
 //rapidjson
 #include <rapidjson/rapidjson.h>
@@ -71,7 +70,7 @@ private:
   };
 
 
-  tf::TransformListener *listener;
+  rs::TFListenerProxy tf_proxy_;
 
   std::vector<BoundingBox> cluster_boxes;
   ros::NodeHandle nodeHandle_;
@@ -93,7 +92,6 @@ public:
     cloud_transformed_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
-    listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
 
     image_pub_ = it_.advertise("counting_image", 1, true);
   }
@@ -157,7 +155,7 @@ public:
 
       //get dimenstions and product type of facing
       plQuery.str(std::string());
-      plQuery << "owl_class_properties('" << facing.productId << "',shop:articleNumberOfProduct,AN).";
+      plQuery << "owl_class_properties(" << facing.productId << ",shop:articleNumberOfProduct,AN).";
 
       outInfo("Asking query: " << plQuery.str());
       json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
@@ -427,16 +425,16 @@ public:
 
         try
         {
-          listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
-          listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
+          tf_proxy_.listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
+          tf_proxy_.listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
           if(facing_.leftSeparator.frame_id_ != localFrameName_)
           {
-            listener->transformPose(localFrameName_, facing_.leftSeparator, facing_.leftSeparator);
+            tf_proxy_.listener->transformPose(localFrameName_, facing_.leftSeparator, facing_.leftSeparator);
             outInfo("New Separator location is: [" << facing_.leftSeparator.getOrigin().x() << "," << facing_.leftSeparator.getOrigin().y() << "," << facing_.leftSeparator.getOrigin().z() << "]");
           }
           if(facing_.rightSeparator.frame_id_ != localFrameName_ && facing_.shelfType != rs::Facing::ShelfType::HANGING)
           {
-            listener->transformPose(localFrameName_, facing_.rightSeparator, facing_.rightSeparator);
+            tf_proxy_.listener->transformPose(localFrameName_, facing_.rightSeparator, facing_.rightSeparator);
             outInfo("New Separator location is: [" << facing_.rightSeparator.getOrigin().x() << ","
                     << facing_.rightSeparator.getOrigin().y() << ","
                     << facing_.rightSeparator.getOrigin().z() << "]");

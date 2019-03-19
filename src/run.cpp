@@ -42,82 +42,84 @@
 
 #include <ros/ros.h>
 #include <ros/package.h>
+#include <rs/utils/common.h>
+
+#include <geometry_msgs/TransformStamped.h>
 
 #undef OUT_LEVEL
 #define OUT_LEVEL OUT_LEVEL_DEBUG
-
 
 /**
  * Error output if program is called with wrong parameter.
  */
 
-class RSRefillsProcessManager: public RSProcessManager
+class RSRefillsProcessManager : public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait,  rs::KnowledgeEngine::KnowledgeEngineType::SWI_PROLOG, ".")
+  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh)
+    : RSProcessManager(usevis, wait, rs::KnowledgeEngine::KnowledgeEngineType::SWI_PROLOG, ".")
   {
-
   }
   virtual ~RSRefillsProcessManager()
   {
-
   }
 
-  bool handleQuery(std::string &req, std::vector<std::string> &res)
+  bool handleQuery(std::string& req, std::vector<std::string>& res)
   {
     outInfo("Handling Query for Refills stuff");
     outInfo("JSON Reuqest: " << req);
     queryInterface->parseQuery(req);
     std::vector<std::string> newPipelineOrder;
     QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
-    for(auto p : newPipelineOrder) outInfo(p);
-    //these are hacks that should be handled by integration of these components in the pipeline planning process
-    rapidjson::Document &query = queryInterface->getQueryDocument();
+    for (auto p : newPipelineOrder)
+      outInfo(p);
+    // these are hacks that should be handled by integration of these components in the pipeline planning process
+    rapidjson::Document& query = queryInterface->getQueryDocument();
 
-    if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
+    if (newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN)
     {
-      rapidjson::Value &val = query["scan"];
-      if(val.HasMember("type"))
+      rapidjson::Value& val = query["scan"];
+      if (val.HasMember("type"))
       {
-        std::string  type = val["type"].GetString();
+        std::string type = val["type"].GetString();
 
-        //TODO: this whole part should move to knowrob pipeline planni
-        if(type == "shelf")
+        // TODO: this whole part should move to knowrob pipeline planni
+        if (type == "shelf")
         {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("ShelfDetector");
-         // newPipelineOrder.push_back("StorageWriter");
+          // newPipelineOrder.push_back("StorageWriter");
         }
-        if(type == "facing")
+        if (type == "facing")
         {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("SeparatorScanner");
           newPipelineOrder.push_back("BarcodeScanner");
-         // newPipelineOrder.push_back("StorageWriter");
+          // newPipelineOrder.push_back("StorageWriter");
         }
-        if(type == "barcode")
+        if (type == "barcode")
         {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("BarcodeScanner");
-         // newPipelineOrder.push_back("StorageWriter");
+          // newPipelineOrder.push_back("StorageWriter");
         }
-        if(type == "separator")
+        if (type == "separator")
         {
           newPipelineOrder.push_back("CollectionReader");
           newPipelineOrder.push_back("ImagePreprocessor");
           newPipelineOrder.push_back("NormalEstimator");
           newPipelineOrder.push_back("SeparatorScanner");
-          //newPipelineOrder.push_back("StorageWriter");
+          // newPipelineOrder.push_back("StorageWriter");
         }
       }
     }
-    if(queryType == QueryInterface::QueryType::DETECT)
+    if (queryType == QueryInterface::QueryType::DETECT)
     {
       newPipelineOrder.clear();
       newPipelineOrder.push_back("CollectionReader");
@@ -126,23 +128,23 @@ public:
       newPipelineOrder.push_back("FacingAnnotator");
       newPipelineOrder.push_back("ProductCounter");
       newPipelineOrder.push_back("MisplacedItemDetection");
-     // newPipelineOrder.push_back("StorageWriter");
+      // newPipelineOrder.push_back("StorageWriter");
     }
 
     {
       std::lock_guard<std::mutex> lock(processing_mutex_);
-      if(queryType == QueryInterface::QueryType::SCAN)
+      if (queryType == QueryInterface::QueryType::SCAN)
       {
-        rapidjson::Value &val = query["scan"];
-        if(val.HasMember("command"))
+        rapidjson::Value& val = query["scan"];
+        if (val.HasMember("command"))
         {
-          std::string  command = val["command"].GetString();
+          std::string command = val["command"].GetString();
           engine_->resetCas();
           rs::Query query = rs::create<rs::Query>(*engine_->getCas());
           query.query.set(req);
           rs::SceneCas sceneCas(*engine_->getCas());
           sceneCas.set("QUERY", query);
-          if(command == "start")
+          if (command == "start")
           {
             engine_->setContinuousPipelineOrder(newPipelineOrder);
             engine_->setPipelineOrdering(newPipelineOrder);
@@ -150,19 +152,19 @@ public:
             waitForServiceCall_ = false;
             return true;
           }
-          else if(command == "stop")
+          else if (command == "stop")
           {
             waitForServiceCall_ = true;
             engine_->setPipelineOrdering(newPipelineOrder);
             engine_->processOnce(res, req);
-            rs::ObjectDesignatorFactory dw(engine_->getCas(),rs::ObjectDesignatorFactory::Mode::CLUSTER);
+            rs::ObjectDesignatorFactory dw(engine_->getCas(), rs::ObjectDesignatorFactory::Mode::CLUSTER);
             dw.getObjectDesignators(res);
             return true;
           }
         }
       }
 
-      else if(queryType == QueryInterface::QueryType::DETECT)
+      else if (queryType == QueryInterface::QueryType::DETECT)
       {
         engine_->resetCas();
         rs::Query query = rs::create<rs::Query>(*engine_->getCas());
@@ -171,7 +173,8 @@ public:
         sceneCas.set("QUERY", query);
         engine_->setPipelineOrdering(newPipelineOrder);
         engine_->processOnce(res, req);
-        rs::ObjectDesignatorFactory dw(engine_->getCas(),rs::ObjectDesignatorFactory::Mode::CLUSTER);
+        outInfo("Converting to Json");
+        rs::ObjectDesignatorFactory dw(engine_->getCas(), rs::ObjectDesignatorFactory::Mode::CLUSTER);
         dw.getObjectDesignators(res);
         return true;
       }
@@ -198,9 +201,9 @@ void help()
 /*       Main                                                              */
 /* ----------------------------------------------------------------------- */
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-  if(argc < 2)
+  if (argc < 2)
   {
     help();
     return 1;
@@ -208,7 +211,7 @@ int main(int argc, char *argv[])
 
   ros::init(argc, argv, std::string("RoboSherlock"));
   ros::NodeHandle nh("~");
-
+  
   std::string analysisEnginesName, analysisEngineFile;
   bool useVisualizer, waitForServiceCall = true;
 
@@ -218,7 +221,7 @@ int main(int argc, char *argv[])
   ros::service::waitForService("/json_prolog/simple_query");
   rs::common::getAEPaths(analysisEnginesName, analysisEngineFile);
 
-  if(analysisEngineFile.empty())
+  if (analysisEngineFile.empty())
   {
     outError("analysis   engine \"" << analysisEngineFile << "\" not found.");
     return -1;
@@ -237,22 +240,22 @@ int main(int argc, char *argv[])
     manager.init(analysisEngineFile, false, false);
     manager.run();
   }
-  catch(const rs::Exception &e)
+  catch (const rs::Exception& e)
   {
     outError("Exception: " << std::endl << e.what());
     return -1;
   }
-  catch(const uima::Exception &e)
+  catch (const uima::Exception& e)
   {
     outError("Exception: " << std::endl << e);
     return -1;
   }
-  catch(const std::exception &e)
+  catch (const std::exception& e)
   {
     outError("Exception: " << std::endl << e.what());
     return -1;
   }
-  catch(...)
+  catch (...)
   {
     outError("Unknown exception!");
     return -1;

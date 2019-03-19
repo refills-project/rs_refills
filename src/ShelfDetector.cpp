@@ -6,7 +6,7 @@
 #include <mutex>
 
 #include <tf_conversions/tf_eigen.h>
-#include <tf/transform_listener.h>
+#include <rs_refills/common_structs.h>
 #include <tf/tf.h>
 
 #include <pcl/point_types.h>
@@ -22,6 +22,7 @@
 #include <rs/scene_cas.h>
 #include <rs/utils/time.h>
 #include <rs/utils/common.h>
+#include <rs/io/TFListenerProxy.h>
 #include <rs/DrawingAnnotator.h>
 
 #include <rapidjson/rapidjson.h>
@@ -52,7 +53,8 @@ public:
   ros::NodeHandle nh_;
   tf::StampedTransform camToWorld_;
   sensor_msgs::CameraInfo camInfo_;
-  tf::TransformListener *listener;
+
+  rs::TFListenerProxy listener_;
   ros::Subscriber barcodeSubscriber_;
   ros::Subscriber separatorSubscriber_;
 
@@ -105,8 +107,6 @@ public:
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBL>>();
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
-
-    listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -130,8 +130,8 @@ public:
     tf::Stamped<tf::Pose> poseStamped, poseBase;
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
     try {
-      listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
-      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      listener_.listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+      listener_.listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
@@ -151,8 +151,8 @@ public:
       tf::Stamped<tf::Pose> poseStamped, poseBase;
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
       try {
-        listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
-        listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+        listener_.listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+        listener_.listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
         pcl::PointXYZRGBL pt;
         pt.x = poseBase.getOrigin().x();

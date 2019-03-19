@@ -436,13 +436,10 @@ public:
     {
       actionlib::SimpleClientGoalState state = ac.getState();
       refills_msgs::ProductIdentificationResultConstPtr res = ac.getResult();
-      outInfo(res->gtin);
-
       ROS_INFO("Action finished: %s", state.toString().c_str());
+      return res->confidence;
     }
-
-    //TODO: check this!!!
-    return 1.0;
+    else return 0.0;
   }
 
   TyErrorId destroy()
