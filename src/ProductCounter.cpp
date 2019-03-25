@@ -420,7 +420,7 @@ public:
         pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
         cas.get(VIEW_CLOUD, *cloud_ptr_);
         cas.get(VIEW_NORMALS, *cloud_normals);
-        cas.get(VIEW_COLOR_IMAGE, rgb_);
+        cas.get(VIEW_DISPLAY_IMAGE, rgb_);
         cas.get(VIEW_CAMERA_INFO, camInfo_);
 
         try
@@ -477,7 +477,8 @@ public:
     countObject(tcas);
 
     drawOnImage();
-
+    rs::SceneCas cas(tcas);
+    cas.set(VIEW_DISPLAY_IMAGE, rgb_);
     return UIMA_ERR_NONE;
   }
 

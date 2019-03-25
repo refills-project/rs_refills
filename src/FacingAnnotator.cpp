@@ -55,6 +55,8 @@ private:
   tf::Stamped<tf::Pose> original_left_separator_pose_img_frame_, original_right_separator_pose_img_frame_;
   tf::Stamped<tf::Pose> top_right_corner_in_image_;
 
+  tf::Stamped<tf::Pose> topRightCorner;
+
 public:
   FacingAnnotator() : DrawingAnnotator(__func__), save_img_files_(false), idx_(0)
   {
@@ -170,12 +172,14 @@ public:
       for (auto bdg : bdgs)
       {
         facing.width.set(bdg["W"].as<double>());
-        facing.height.set(bdg["H"].as<double>());
+        facing.height.set(bdg["H"].as<double>() +0.05); //offset the Knowrob assumption of 10cms between object and shlef above. leave a 2cm buffer though
         if (facing.height() > 1.0)
           facing.height.set(0.25);
         facing.depth.set(bdg["D"].as<double>());
         facing.productId.set(bdg["P"].toString());
       }
+
+      outInfo("Facing dimensions are: H: " << facing.height() << " W: " << facing.width() << " D: " << facing.depth());
 
       tf::Stamped<tf::Pose> leftSepPose, rightSepPose;
 
@@ -269,14 +273,13 @@ public:
           }
         }
 
-        //        listener_.listener->waitForTransform(cam_info_.header.frame_id, leftSepPose.frame_id_, ros::Time(0),
-        //        ros::Duration(2.0));
+        listener_.listener->waitForTransform(cam_info_.header.frame_id, leftSepPose.frame_id_, ros::Time(0),
+                                             ros::Duration(2.0));
         listener_.listener->transformPose(cam_info_.header.frame_id, leftSepPose, left_separator_pose_in_image_);
-        //        listener_.listener->waitForTransform(cam_info_.header.frame_id, rightSepPose.frame_id_, ros::Time(0),
-        //        ros::Duration(2.0));
+        listener_.listener->waitForTransform(cam_info_.header.frame_id, rightSepPose.frame_id_, ros::Time(0),
+                                             ros::Duration(2.0));
         listener_.listener->transformPose(cam_info_.header.frame_id, rightSepPose, right_separator_pose_in_image_);
 
-        tf::Stamped<tf::Pose> topRightCorner;
         if (shelf_type == rs::Facing::ShelfType::STANDING)
         {
           topRightCorner = rightSepPose;
@@ -291,9 +294,8 @@ public:
                                                leftSepPose.getOrigin().z() - facing.height()));
         }
 
-        //        listener_.listener->waitForTransform(cam_info_.header.frame_id, topRightCorner.frame_id_,
-        //        ros::Time(0),
-        //                                             ros::Duration(2.0));
+        listener_.listener->waitForTransform(cam_info_.header.frame_id, topRightCorner.frame_id_, ros::Time(0),
+                                             ros::Duration(2.0));
         listener_.listener->transformPose(cam_info_.header.frame_id, topRightCorner, top_right_corner_in_image_);
 
         cv::Rect facing_roi = calcRectInImage(left_separator_pose_in_image_, top_right_corner_in_image_);
@@ -445,6 +447,8 @@ public:
       idx_ = 0;
       separator_points_->clear();
     }
+    drawOnImage();
+    cas.set(VIEW_DISPLAY_IMAGE, dispImg_);
     return UIMA_ERR_NONE;
   }
 
@@ -519,25 +523,35 @@ public:
     return rect;
   }
 
+  void drawOnImage()
+  {
+      cv::Point leftSepInImage = projection(left_separator_pose_in_image_, cam_info_);
+      cv::Point rightSepInImage = projection(right_separator_pose_in_image_, cam_info_);
+      cv::Point origLeftSepInImage = projection(original_left_separator_pose_img_frame_, cam_info_);
+      cv::Point origRightSepInImage = projection(original_right_separator_pose_img_frame_, cam_info_);
+
+      cv::Point topRightCornerPt = projection(top_right_corner_in_image_, cam_info_);
+
+      if (leftSepInImage.y > cam_info_.height)
+        leftSepInImage.y = cam_info_.height - 2;
+      if (rightSepInImage.y > cam_info_.height)
+        rightSepInImage.y = cam_info_.height - 2;
+
+      outInfo("Left Sep image coords: " << leftSepInImage);
+      outInfo("Right Sep image coords: " << rightSepInImage);
+      cv::circle(dispImg_, leftSepInImage, 5, cv::Scalar(255, 0, 0), 3);
+      cv::circle(dispImg_, rightSepInImage, 5, cv::Scalar(255, 0, 0), 3);
+
+      cv::circle(dispImg_, origLeftSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+      cv::circle(dispImg_, origRightSepInImage, 5, cv::Scalar(0, 0, 255), 3);
+
+      cv::circle(dispImg_, topRightCornerPt, 5, cv::Scalar(0, 255, 0), 3);
+  }
+
   void drawImageWithLock(cv::Mat& disp)
   {
-    cv::Point leftSepInImage = projection(left_separator_pose_in_image_, cam_info_);
-    cv::Point rightSepInImage = projection(right_separator_pose_in_image_, cam_info_);
-    cv::Point origLeftSepInImage = projection(original_left_separator_pose_img_frame_, cam_info_);
-    cv::Point origRightSepInImage = projection(original_right_separator_pose_img_frame_, cam_info_);
 
-    if (leftSepInImage.y > cam_info_.height)
-      leftSepInImage.y = cam_info_.height - 2;
-    if (rightSepInImage.y > cam_info_.height)
-      rightSepInImage.y = cam_info_.height - 2;
 
-    outInfo("Left Sep image coords: " << leftSepInImage);
-    outInfo("Right Sep image coords: " << rightSepInImage);
-    cv::circle(dispImg_, leftSepInImage, 5, cv::Scalar(255, 0, 0), 3);
-    cv::circle(dispImg_, rightSepInImage, 5, cv::Scalar(255, 0, 0), 3);
-
-    cv::circle(dispImg_, origLeftSepInImage, 5, cv::Scalar(0, 0, 255), 3);
-    cv::circle(dispImg_, origRightSepInImage, 5, cv::Scalar(0, 0, 255), 3);
     disp = dispImg_.clone();
   }
 };
