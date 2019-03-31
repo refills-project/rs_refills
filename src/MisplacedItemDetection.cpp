@@ -18,6 +18,15 @@
 #include <rs/DrawingAnnotator.h>
 
 #include <boost/filesystem.hpp>
+
+#include <actionlib/client/simple_action_client.h>
+#include <actionlib/client/terminal_state.h>
+#include <refills_msgs/ProductIdentificationAction.h>
+
+#include <sensor_msgs/CompressedImage.h>
+#include <cv_bridge/cv_bridge.h>
+
+
 using namespace uima;
 
 namespace bfs = boost::filesystem;
@@ -36,8 +45,7 @@ private:
   cv::Mat disp_, model_;
 
   int imgIdx_, modelIdx_;
-  bool testMode_;
-
+  bool testMode_, local_implementation_;
 
   enum {
     CANNY,
@@ -51,6 +59,7 @@ private:
   cv::Mat canny_, bin_, mask_, hist_;
 
   std::stringstream positiveMatch, negativeMatch;
+  actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction> *ac;
 public:
 
   MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(BIN)
@@ -213,6 +222,16 @@ public:
         }
       }
     }
+    if(ctx.isParameterDefined("local_implementation"))
+      ctx.extractValue("local_implementation",local_implementation_);
+    if(!local_implementation_)
+    {
+     ac= new actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction>("/product_identification_server",
+                                                                                true);
+     outInfo("Waiting for [/product_identification_server]");
+     ac->waitForServer();
+     outInfo("Connected");
+    } 
     return UIMA_ERR_NONE;
   }
 
@@ -370,6 +389,47 @@ public:
     }
   }
 
+  double callExternalAction(const cv::Mat& image, const cv::Rect& facing_rect, std::string gtin)
+  {
+  //  actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction> ac("/product_identification_server",
+  // true);
+  //  outInfo("Waiting for action server to start.");
+    // wait for the action server to start
+  //  ac.waitForServer();  // will wait for infinite time
+  //  outInfo("Action server started, sending goal.");
+    // send a goal to the action
+
+    refills_msgs::ProductIdentificationGoal goal;
+    sensor_msgs::CompressedImage compr_image;
+    compr_image.format = "jpeg";
+    compr_image.header.stamp = ros::Time::now();
+    cv::imencode(".jpg", image, compr_image.data);
+
+    sensor_msgs::RegionOfInterest roi;
+    roi.width = facing_rect.width;
+    roi.height = facing_rect.height;
+    roi.x_offset = facing_rect.x;
+    roi.y_offset = facing_rect.y;
+
+    goal.image = compr_image;
+    goal.roi = roi;
+
+    ac->sendGoal(goal);
+
+    // wait for the action to return
+    bool finished_before_timeout = ac->waitForResult(ros::Duration(5.0));
+
+    if (finished_before_timeout)
+    {
+      actionlib::SimpleClientGoalState state = ac->getState();
+      refills_msgs::ProductIdentificationResultConstPtr res = ac->getResult();
+      ROS_INFO("Action finished: %s", state.toString().c_str());
+      return res->confidence;
+    }
+    else return 0.0;
+  }
+  
+
   TyErrorId destroy()
   {
     outInfo("destroy");
@@ -416,7 +476,10 @@ public:
           for(auto mI : modelImages)
             outInfo("Model Image fot Gtin found  at: " << mI);
 	  double score = 0.0;
-          score = matchModelToFacing(facingImg, modelImages);
+          if(local_implementation_)
+	    score = matchModelToFacing(facingImg, modelImages);
+          else
+	    score  = callExternalAction(rgb, facingRect, gTinOfFacing);
           det.confidence.set(score);
         }
       }

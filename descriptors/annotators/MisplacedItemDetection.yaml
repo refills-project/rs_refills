@@ -2,6 +2,7 @@ annotator:
   implementation: rs_MisplacedItemDetection
 parameters:
   testMode: true
+  local_implementation: false
 capabilities:
   inputs: {}
   outputs: {}
