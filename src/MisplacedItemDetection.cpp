@@ -27,6 +27,11 @@
 #include <cv_bridge/cv_bridge.h>
 
 
+//image_transport
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+
 using namespace uima;
 
 namespace bfs = boost::filesystem;
@@ -40,12 +45,19 @@ private:
   std::vector<std::pair<std::string, std::string>> testFiles_;
   YAML::Node yamlModelsConfig;
 
+  sensor_msgs::CameraInfo cam_info_;
+
   cv::Ptr<cv::ORB> detector;
 
-  cv::Mat disp_, model_;
+  cv::Mat disp_, model_, disp_img_;
 
   int imgIdx_, modelIdx_;
   bool testMode_, local_implementation_;
+
+
+  ros::NodeHandle nodeHandle_;
+  image_transport::Publisher image_pub_;
+  image_transport::ImageTransport it_;
 
   enum {
     CANNY,
@@ -62,7 +74,7 @@ private:
   actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction> *ac;
 public:
 
-  MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(BIN)
+  MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(BIN), nodeHandle_("~"), it_(nodeHandle_)
   {
     detector = cv::ORB::create();
     canny_ = cv::Mat::zeros(640, 480, CV_8U);
@@ -71,6 +83,9 @@ public:
     hist_ = cv::Mat::zeros(640, 480, CV_8UC3);
     disp_ = cv::Mat::zeros(640, 480, CV_8UC3);
     model_ = cv::Mat::zeros(640, 480, CV_8UC3);
+
+
+    image_pub_ = it_.advertise("counting_image", 1, true);
 
   }
 
@@ -389,7 +404,7 @@ public:
     }
   }
 
-  double callExternalAction(const cv::Mat& image, const cv::Rect& facing_rect, std::string gtin)
+  double callExternalAction(const cv::Mat& image, const cv::Rect& facing_rect, std::string gtin, std::string &resGtin)
   {
   //  actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction> ac("/product_identification_server",
   // true);
@@ -413,7 +428,7 @@ public:
 
     goal.image = compr_image;
     goal.roi = roi;
-
+    goal.goal_gtin  = gtin;
     ac->sendGoal(goal);
 
     // wait for the action to return
@@ -423,6 +438,7 @@ public:
     {
       actionlib::SimpleClientGoalState state = ac->getState();
       refills_msgs::ProductIdentificationResultConstPtr res = ac->getResult();
+      resGtin = res->result_gtin;
       ROS_INFO("Action finished: %s", state.toString().c_str());
       return res->confidence;
     }
@@ -452,7 +468,11 @@ public:
     if(!testMode_) {
       rs::SceneCas cas(tcas);
       rs::Scene scene = cas.getScene();
+      rs::conversion::from(scene.viewPoint.get(),cam_info_);
       cas.get(VIEW_COLOR_IMAGE, rgb);
+
+      cas.get("display_image",disp_img_);
+
       std::vector<rs::ObjectHypothesis> hyps;
       scene.identifiables.filter(hyps);
       outInfo("Found " << hyps.size() << " hypotheses.");
@@ -474,15 +494,36 @@ public:
           outInfo("Gtin of Facing: " << gTinOfFacing);
           modelImages = gtinToImages_[gTinOfFacing];
           for(auto mI : modelImages)
-            outInfo("Model Image fot Gtin found  at: " << mI);
-	  double score = 0.0;
+          outInfo("Model Image fot Gtin found  at: " << mI);
+          double score = 0.0;
+          std::string actualGtin ="";
           if(local_implementation_)
-	    score = matchModelToFacing(facingImg, modelImages);
-          else
-	    score  = callExternalAction(rgb, facingRect, gTinOfFacing);
+            score = matchModelToFacing(facingImg, modelImages);
+          else{
+            score  = callExternalAction(rgb, facingRect, gTinOfFacing,actualGtin);
+            cv::Point textLoc;
+            textLoc.x = std::max(0,facingRect.x-30);
+            textLoc.y = std::max(0, facingRect.y-40);
+
+            if(actualGtin == gTinOfFacing){
+                cv::putText(disp_img_,actualGtin, textLoc, cv::FONT_HERSHEY_PLAIN, 1.0,cv::Scalar(255.0,0));
+            }
+            else{
+                cv::putText(disp_img_,actualGtin,textLoc,cv::FONT_HERSHEY_PLAIN, 1.0,cv::Scalar(0.0,255));
+            }
+	  }
           det.confidence.set(score);
         }
       }
+      //TOOD: use image transport
+      cv_bridge::CvImage outImgMsgs;
+
+      outImgMsgs.header = cam_info_.header;
+      outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
+      outImgMsgs.image = disp_;
+      image_pub_.publish(outImgMsgs.toImageMsg());
+
+
     }
     else {
       std::pair<std::string, std::string> &testFilePair = testFiles_[imgIdx_];

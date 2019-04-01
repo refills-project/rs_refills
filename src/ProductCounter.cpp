@@ -66,7 +66,7 @@ private:
     std::string productId;
     std::string facingId;
 
-    cv::Rect imageLoc;
+    cv::Rect rect;
     cv::Mat mask;
   };
 
@@ -92,10 +92,11 @@ private:
   ros::Subscriber separatorSubscriber_;
 
   std::vector<BoundingBox> cluster_boxes;
+
   ros::NodeHandle nodeHandle_;
 
-  image_transport::Publisher image_pub_;
-  image_transport::ImageTransport it_;
+//  image_transport::Publisher image_pub_;
+//  image_transport::ImageTransport it_;
 
   tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_, originalSeparator1PoseImageFrame_, topRightCornerInImage_, originalSeparator2PoseImageFrame_;
 
@@ -107,7 +108,7 @@ private:
 
   std::string folderPath_;
 public:
-  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false), localFrameName_(""), nodeHandle_("~"), it_(nodeHandle_)
+  ProductCounter(): DrawingAnnotator(__func__), useLocalFrame_(false), saveImgFiles_(false), localFrameName_(""), nodeHandle_("~")/*, it_(nodeHandle_)*/
   {
     cloudFiltered_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_transformed_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
@@ -115,7 +116,7 @@ public:
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
 
-    image_pub_ = it_.advertise("counting_image", 1, true);
+//    image_pub_ = it_.advertise("counting_image", 1, true);
 
     separatorSubscriber_ = nodeHandle_.subscribe("/separator_marker_detector_node/data_out", 50, &ProductCounter::separatorCb, this);
 
@@ -218,14 +219,14 @@ public:
       json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
       if(bdgs.begin() == bdgs.end()) {
         outInfo("facing is on a mounting hanging ");
-        facing.shelfType = facing.ShelfType::HANGING;
+        facing.shelfType =Facing::ShelfType::HANGING;
       }
       else {
         outInfo("Standing shelf");
-        facing.shelfType = facing.ShelfType::STANDING;
+        facing.shelfType = Facing::ShelfType::STANDING;
       }
 
-      if(facing.shelfType == facing.ShelfType::STANDING) {
+      if(facing.shelfType == Facing::ShelfType::STANDING) {
         //get the left and Right separators:
         plQuery.str(std::string(""));
         plQuery << "rdf_has('" << facing.facingId << "', shop:leftSeparator, L), object_perception_affordance_frame_name(L,LFrameName),"
@@ -259,7 +260,7 @@ public:
         facing.rightSeparator.frame_id_ = rightSep.frame_id_;
         facing.rightSeparator.stamp_ = rightSep.stamp_;
       }
-      else if(facing.shelfType == facing.ShelfType::HANGING) {
+      else if(facing.shelfType == Facing::ShelfType::HANGING) {
         plQuery.str(std::string(""));
         plQuery << "rdf_has('" << facing.facingId << "', shop:mountingBarOfFacing, M), object_perception_affordance_frame_name(M,MFrameName).";
         outInfo("Asking query: " << plQuery.str());
@@ -344,7 +345,7 @@ public:
     float minX, minY, minZ;
     float maxX, maxY, maxZ;
 
-    if(facing.shelfType == facing.ShelfType::HANGING) {
+    if(facing.shelfType == Facing::ShelfType::HANGING) {
       minX = facing.leftSeparator.getOrigin().x() - facing.width / 2;
       maxX = facing.leftSeparator.getOrigin().x() + facing.width / 2;
 
@@ -354,7 +355,7 @@ public:
       maxZ = facing.leftSeparator.getOrigin().z();
       minZ = facing.leftSeparator.getOrigin().z() - facing.height;
     }
-    else if(facing.shelfType == facing.ShelfType::STANDING) {
+    else if(facing.shelfType == Facing::ShelfType::STANDING) {
       float xOffset = 0.01;
       if(fabs(facing.leftSeparator.getOrigin().x() - facing.rightSeparator.getOrigin().x()) < 0.025)
         xOffset = 0.00;
@@ -516,16 +517,16 @@ public:
     rs::ObjectHypothesis facingHyp = rs::create<rs::ObjectHypothesis>(tcas);
 
     //to make feature extraction happy;
-    cv::Rect rect_hires = facing_.imageLoc;
+    cv::Rect rect_hires = facing_.rect;
     rect_hires.height *= 1.5;
     rect_hires.width *= 1.5;
     rect_hires.x *= 1.5;
     rect_hires.y *= 1.5;
 
     rs::ImageROI roi = rs::create<rs::ImageROI>(tcas);
-    roi.roi(rs::conversion::to(tcas, facing_.imageLoc));
+    roi.roi(rs::conversion::to(tcas, facing_.rect));
     roi.roi_hires(rs::conversion::to(tcas, rect_hires));
-    cv::Mat mask = cv::Mat::ones(cv::Size(facing_.imageLoc.size()), CV_8U);
+    cv::Mat mask = cv::Mat::ones(cv::Size(facing_.rect.size()), CV_8U);
     cv::Mat mask_hires = cv::Mat::ones(cv::Size(rect_hires.size()), CV_8U);
     roi.mask(rs::conversion::to(tcas, mask));
     roi.mask_hires(rs::conversion::to(tcas, mask_hires));
@@ -578,7 +579,7 @@ public:
           listener->transformPose(localFrameName_, facing_.leftSeparator, facing_.leftSeparator);
           outInfo("New Separator location is: [" << facing_.leftSeparator.getOrigin().x() << "," << facing_.leftSeparator.getOrigin().y() << "," << facing_.leftSeparator.getOrigin().z() << "]");
         }
-        if(facing_.rightSeparator.frame_id_ != localFrameName_ && facing_.shelfType != facing_.ShelfType::HANGING) {
+        if(facing_.rightSeparator.frame_id_ != localFrameName_ && facing_.shelfType != Facing::ShelfType::HANGING) {
           listener->transformPose(localFrameName_, facing_.rightSeparator, facing_.rightSeparator);
           outInfo("New Separator location is: [" << facing_.rightSeparator.getOrigin().x() << ","
                   << facing_.rightSeparator.getOrigin().y() << ","
@@ -624,11 +625,11 @@ public:
         }
 
         listener->transformPose(camInfo_.header.frame_id, facing_.leftSeparator, separatorPoseInImage_);
-        if(facing_.shelfType == facing_.ShelfType::STANDING)
+        if(facing_.shelfType == Facing::ShelfType::STANDING)
           listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
 
         tf::Stamped<tf::Pose> topRightCorner;
-        if(facing_.shelfType == facing_.ShelfType::STANDING) {
+        if(facing_.shelfType == Facing::ShelfType::STANDING) {
           topRightCorner = facing_.rightSeparator;
           topRightCorner.setOrigin(tf::Vector3(facing_.rightSeparator.getOrigin().x(),
                                                facing_.rightSeparator.getOrigin().y(),
@@ -643,7 +644,7 @@ public:
         listener->waitForTransform(camInfo_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
         listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */topRightCorner,/* "map"*/ topRightCornerInImage_);
 
-        facing_.imageLoc = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
+        facing_.rect = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
         if(saveImgFiles_) {
           rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
           std::fstream fstream;
@@ -651,10 +652,10 @@ public:
           filename << folderPath_ << "/gtin_" << facing_.gtin << "_" << camInfo_.header.stamp.toNSec();
           fstream.open(filename.str() + "_meta.json", std::fstream::out);
           fstream << "{\"dan\":" << facing_.gtin << ","
-                  << " \"rect\":{" << "\"x\":" << facing_.imageLoc.x << ",\n"
-                  << "\"y\":" << facing_.imageLoc.y << ",\n"
-                  << "\"h\":" << facing_.imageLoc.height << ",\n"
-                  << "\"w\":" << facing_.imageLoc.width << "}\n";
+                  << " \"rect\":{" << "\"x\":" << facing_.rect.x << ",\n"
+                  << "\"y\":" << facing_.rect.y << ",\n"
+                  << "\"h\":" << facing_.rect.height << ",\n"
+                  << "\"w\":" << facing_.rect.width << "}\n";
           fstream << "}";
           fstream.flush();
           fstream.close();
@@ -712,6 +713,9 @@ public:
 
     countObject(tcas);
     drawOnImage();
+    rs::SceneCas cas(tcas);
+
+    cas.set("display_image",rgb_);
 
     return UIMA_ERR_NONE;
   }
@@ -798,14 +802,14 @@ public:
     cv::circle(rgb_, origLeftSepInImage, 5, cv::Scalar(0, 0, 255), 3);
     cv::circle(rgb_, origRightSepInImage, 5, cv::Scalar(0, 0, 255), 3);
 
-    cv::rectangle(rgb_, facing_.imageLoc, cv::Scalar(0, 255, 0));
+    cv::rectangle(rgb_, facing_.rect, cv::Scalar(0, 255, 0));
 
     //TOOD: use image transport
-    cv_bridge::CvImage outImgMsgs;
-    outImgMsgs.header = camInfo_.header;
-    outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
-    outImgMsgs.image = rgb_;
-    image_pub_.publish(outImgMsgs.toImageMsg());
+//    cv_bridge::CvImage outImgMsgs;
+//    outImgMsgs.header = camInfo_.header;
+//    outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
+//    outImgMsgs.image = rgb_;
+//    image_pub_.publish(outImgMsgs.toImageMsg());
   }
 
   void drawImageWithLock(cv::Mat &disp)
