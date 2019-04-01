@@ -10,13 +10,14 @@ fixedflow:
   - ShelfDetector
   - ProductCounter
   - MisplacedItemDetection
+  - ImageSaver
 CollectionReader:
   camera_config_files: ['config_realsense_donbot.ini']
 RegionFilter:
   defaultRegions: ['shelf_system_0']
 ProductCounter:
   use_local_frame: true
-  saveImgFiles: true
+  saveImgFiles: false 
 StorageWriter:
   stroagedb: 'rs_log'
   newUniqueDB: true 

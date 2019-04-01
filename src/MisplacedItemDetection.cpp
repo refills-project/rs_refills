@@ -501,7 +501,7 @@ public:
             score = matchModelToFacing(facingImg, modelImages);
           else{
             score  = callExternalAction(rgb, facingRect, gTinOfFacing,actualGtin);
-            outInfo("Intel detector sais it is:" <<actualGtin);
+            outInfo("Intel detector says it is:" <<actualGtin);
             cv::Point text_loc, text_img_loc;
 
 
@@ -513,6 +513,11 @@ public:
 
             text_img_loc.x = std::max(0,facingRect.x - textSize.height-10);
             text_img_loc.y = std::max(0, facingRect.y);
+
+            rs::Classification c = rs::create<rs::Classification>(tcas);
+            c.classname.set(actualGtin);
+            c.source.set("MisplacedItemDetection");
+            h.annotations.append(c);
 
             if(actualGtin == gTinOfFacing){
                 cv::putText(textImage,actualGtin, text_loc, cv::FONT_HERSHEY_COMPLEX, 1.0,cv::Scalar(0,255,0),2);
@@ -533,10 +538,8 @@ public:
             cv::warpAffine(textImage, text_rotated, rot_mat, bbox.size());
 
             int diff = facingRect.height - text_rotated.rows;
-
-
             text_rotated.copyTo(disp_img_(cv::Rect(text_img_loc.x, text_img_loc.y + diff, text_rotated.cols, text_rotated.rows)));
-	  }
+          }
           det.confidence.set(score);
         }
       }

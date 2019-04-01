@@ -73,3 +73,5 @@ target_link_libraries(rs_MisplacedItemDetection ${catkin_LIBRARIES})
 rs_add_executable(processing_engine src/run.cpp)
 target_link_libraries(processing_engine ${catkin_LIBRARIES})
 
+rs_add_library(rs_ImageSaver src/ImageSaver.cpp)
+target_link_libraries(rs_ImageSaver ${catkin_LIBRARIES})
