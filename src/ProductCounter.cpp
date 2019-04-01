@@ -644,7 +644,7 @@ public:
         listener->waitForTransform(camInfo_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
         listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */topRightCorner,/* "map"*/ topRightCornerInImage_);
 
-        facing_.rect = calcRectInImage(separatorPoseInImage_, topRightCornerInImage_);
+        facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_);
         if(saveImgFiles_) {
           rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
           std::fstream fstream;
@@ -683,13 +683,15 @@ public:
       return false;
   }
 
-  cv::Rect calcRectInImage(tf::Stamped<tf::Pose> separatorPose, tf::Stamped<tf::Pose> topRightCorner)
+  cv::Rect calcRectInImage(tf::Stamped<tf::Pose> separatorPose, tf::Stamped<tf::Pose> nextSeparatorPose,tf::Stamped<tf::Pose> topRightCorner)
   {
     cv::Point2d bottomleftPoint = projection(separatorPose);
     cv::Point2d toprightPOint = projection(topRightCorner);
+    cv::Point2d bottomRightPoint = projection(nextSeparatorPose);
+
     cv::Rect rect(std::min(bottomleftPoint.x, toprightPOint.x),
                   std::min(bottomleftPoint.y, toprightPOint.y),
-                  std::fabs(bottomleftPoint.x - toprightPOint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
+                  std::fabs(bottomleftPoint.x - bottomRightPoint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
     rect.x = std::max(0, rect.x);
     rect.y = std::max(0, rect.y);
     if((rect.x + rect.width) > rgb_.cols) {

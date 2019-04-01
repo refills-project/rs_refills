@@ -439,7 +439,7 @@ public:
       actionlib::SimpleClientGoalState state = ac->getState();
       refills_msgs::ProductIdentificationResultConstPtr res = ac->getResult();
       resGtin = res->result_gtin;
-      ROS_INFO("Action finished: %s", state.toString().c_str());
+      outInfo("Action finished: "<<state.toString());
       return res->confidence;
     }
     else return 0.0;
@@ -502,19 +502,40 @@ public:
           else{
             score  = callExternalAction(rgb, facingRect, gTinOfFacing,actualGtin);
             outInfo("Intel detector sais it is:" <<actualGtin);
-            cv::Point textLoc;
-            textLoc.x = std::max(0,facingRect.x-10);
-            textLoc.y = std::max(0, facingRect.y-20);
+            cv::Point text_loc, text_img_loc;
+
 
             int baseline=0; 
-            //cv::Point textArea = cv.getTextSize(actualGtin, cv::FONT_HERSHEY_PLAIN, 2.0, 1.0, &baseline);
-            //cv::Mat textImage = cv::Mat::ones(textArea.x, textArea.y
+            cv::Size textSize = cv::getTextSize(actualGtin, cv::FONT_HERSHEY_COMPLEX, 1.0, 2, &baseline);
+            cv::Mat textImage(textSize.height+10, textSize.width+10, disp_img_.type(), cv::Scalar(255,255, 255));
+            text_loc.x = 5;
+            text_loc.y = textSize.height+5;
+
+            text_img_loc.x = std::max(0,facingRect.x - textSize.height-10);
+            text_img_loc.y = std::max(0, facingRect.y);
+
             if(actualGtin == gTinOfFacing){
-                cv::putText(disp_img_,actualGtin, textLoc, cv::FONT_HERSHEY_PLAIN, 2.0,cv::Scalar(255,0,0));
+                cv::putText(textImage,actualGtin, text_loc, cv::FONT_HERSHEY_COMPLEX, 1.0,cv::Scalar(0,255,0),2);
             }
             else{
-                cv::putText(disp_img_,actualGtin,textLoc,cv::FONT_HERSHEY_PLAIN, 2.0,cv::Scalar(0,0,255));
+                cv::putText(textImage,actualGtin,text_loc,cv::FONT_HERSHEY_COMPLEX, 1.0,cv::Scalar(0,0,255),2);
             }
+
+            cv::Point2f src_center(textImage.cols/2.0F, textImage.rows/2.0F);
+            cv::Mat rot_mat = cv::getRotationMatrix2D(src_center, 90 , 1.0);
+
+            cv::Rect2f bbox = cv::RotatedRect(cv::Point2f(), textImage.size(), 90).boundingRect2f();
+            // adjust transformation matrix
+            rot_mat.at<double>(0,2) += bbox.width/2.0 - textImage.cols/2.0;
+            rot_mat.at<double>(1,2) += bbox.height/2.0 - textImage.rows/2.0;
+
+            cv::Mat text_rotated;
+            cv::warpAffine(textImage, text_rotated, rot_mat, bbox.size());
+
+            int diff = facingRect.height - text_rotated.rows;
+
+
+            text_rotated.copyTo(disp_img_(cv::Rect(text_img_loc.x, text_img_loc.y + diff, text_rotated.cols, text_rotated.rows)));
 	  }
           det.confidence.set(score);
         }
