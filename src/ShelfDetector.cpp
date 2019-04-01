@@ -223,7 +223,7 @@ public:
     cec.setInputCloud(cloud);
     cec.setConditionFunction(boost::bind(&ShelfDetector::enforceZAxesSimilarity, this, _1, _2, _3));
     cec.setClusterTolerance(2.0);
-    cec.setMinClusterSize(10);
+    cec.setMinClusterSize(7);
     cec.setMaxClusterSize(cloud->points.size());
     cec.segment(*clusters);
     //cec.getRemovedClusters(small_clusters, large_clusters);
@@ -272,7 +272,7 @@ public:
 
 
       Eigen::Vector4f centroid,centroidSep,centroidBar;
-      if(!barcodeIndices.indices.empty() && separatorIndices.indices.empty())
+      if(!barcodeIndices.indices.empty() && !separatorIndices.indices.empty())
       {
 
           pcl::compute3DCentroid(*cloud, barcodeIndices,centroidBar);
