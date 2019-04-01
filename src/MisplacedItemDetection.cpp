@@ -468,9 +468,9 @@ public:
     if(!testMode_) {
       rs::SceneCas cas(tcas);
       rs::Scene scene = cas.getScene();
-      rs::conversion::from(scene.viewPoint.get(),cam_info_);
+      
       cas.get(VIEW_COLOR_IMAGE, rgb);
-
+      cas.get(VIEW_CAMERA_INFO, cam_info_);
       cas.get("display_image",disp_img_);
 
       std::vector<rs::ObjectHypothesis> hyps;
@@ -501,15 +501,19 @@ public:
             score = matchModelToFacing(facingImg, modelImages);
           else{
             score  = callExternalAction(rgb, facingRect, gTinOfFacing,actualGtin);
+            outInfo("Intel detector sais it is:" <<actualGtin);
             cv::Point textLoc;
-            textLoc.x = std::max(0,facingRect.x-30);
-            textLoc.y = std::max(0, facingRect.y-40);
+            textLoc.x = std::max(0,facingRect.x-10);
+            textLoc.y = std::max(0, facingRect.y-20);
 
+            int baseline=0; 
+            //cv::Point textArea = cv.getTextSize(actualGtin, cv::FONT_HERSHEY_PLAIN, 2.0, 1.0, &baseline);
+            //cv::Mat textImage = cv::Mat::ones(textArea.x, textArea.y
             if(actualGtin == gTinOfFacing){
-                cv::putText(disp_img_,actualGtin, textLoc, cv::FONT_HERSHEY_PLAIN, 1.0,cv::Scalar(255.0,0));
+                cv::putText(disp_img_,actualGtin, textLoc, cv::FONT_HERSHEY_PLAIN, 2.0,cv::Scalar(255,0,0));
             }
             else{
-                cv::putText(disp_img_,actualGtin,textLoc,cv::FONT_HERSHEY_PLAIN, 1.0,cv::Scalar(0.0,255));
+                cv::putText(disp_img_,actualGtin,textLoc,cv::FONT_HERSHEY_PLAIN, 2.0,cv::Scalar(0,0,255));
             }
 	  }
           det.confidence.set(score);
@@ -520,7 +524,7 @@ public:
 
       outImgMsgs.header = cam_info_.header;
       outImgMsgs.encoding = sensor_msgs::image_encodings::BGR8;
-      outImgMsgs.image = disp_;
+      outImgMsgs.image = disp_img_;
       image_pub_.publish(outImgMsgs.toImageMsg());
 
 
