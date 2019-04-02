@@ -303,9 +303,9 @@ public:
         facing.gtin = bdg["AN"].toString();
         facing.dan = bdg["DAN"].toString();
         size_t loc = facing.gtin.find_last_of("GTIN_");
-        size_t loc2 = facing.dan.find_last_of("AN");
+//      size_t loc2 = facing.dan.find_last_of("AN");
         loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2) : facing.gtin = "";
-        loc2 != std::string::npos ? facing.dan = facing.dan.substr(loc2 + 1, facing.dan.size() - loc2 - 2) : facing.dan = "";
+//        loc2 != std::string::npos ? facing.dan = facing.dan.substr(loc2 + 1, facing.dan.size() - loc2 - 2) : facing.dan = "";
       }
 
       //get the dimenstions of the product on the facing
