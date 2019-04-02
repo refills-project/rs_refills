@@ -64,6 +64,20 @@ public:
       rs::Scene scene = cas.getScene();
       cas.get(VIEW_COLOR_IMAGE, rgb);
       cas.get(VIEW_CAMERA_INFO, cam_info_);
+      tf::StampedTransform camtoWorld, worldToCam;
+      rs::conversion::from(scene.viewPoint(),camtoWorld);
+;
+
+      tf::Vector3 z_axes(0,0,1); //z in world coordinates
+      tf::Vector3 y_world = camtoWorld.getBasis().getColumn(1); //our cameras y axes in world coordinate
+
+      double angle = std::acos(y_world.dot(z_axes));
+      bool flipped = false;
+      double dist = M_PI - angle;
+      if ( dist > angle)
+      {
+        flipped = true;
+      }
 
       std::vector<rs::ObjectHypothesis> hyps;
       scene.identifiables.filter(hyps);
@@ -88,6 +102,7 @@ public:
        fstream << "{\"gtin_facing\": \"" << det.name() << "\","
                << " \"gtin_result\": \"" << cl.classname()<< "\","
                << " \"dan\": \"" << cl.featurename()<< "\","
+               << " \"flipped\": " << flipped << ","
                << " \"rect\":{" << "\"x\":" << facingRect.x << ",\n"
                << "\"y\":" << facingRect.y << ",\n"
                << "\"h\":" << facingRect.height << ",\n"
