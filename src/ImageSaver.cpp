@@ -87,6 +87,7 @@ public:
        fstream.open(filename.str() + "_meta.json", std::fstream::out);
        fstream << "{\"gtin_facing\": \"" << det.name() << "\","
                << " \"gtin_result\": \"" << cl.classname()<< "\","
+               << " \"dan\": \"" << cl.featurename()<< "\","
                << " \"rect\":{" << "\"x\":" << facingRect.x << ",\n"
                << "\"y\":" << facingRect.y << ",\n"
                << "\"h\":" << facingRect.height << ",\n"

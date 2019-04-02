@@ -479,10 +479,18 @@ public:
       for(auto &h : hyps) {
         std::vector<rs::Detection> detections;
         h.annotations.filter(detections);
+
+        std::vector<rs::Classification> classification;
+        h.annotations.filter(classification);
+
+
+
         if(detections.empty()) continue;
+        if(classification.empty()) continue;
 
         rs::Detection &det = detections[0];
         //        det.confidence.set(0.77);
+	rs::Classification &cl = classification[0];
 
         if(det.source()  == "FacingDetection") {
           outInfo("Found a hypothesis with a facing detection");
@@ -514,10 +522,8 @@ public:
             text_img_loc.x = std::max(0,facingRect.x - textSize.height-10);
             text_img_loc.y = std::max(0, facingRect.y);
 
-            rs::Classification c = rs::create<rs::Classification>(tcas);
-            c.classname.set(actualGtin);
-            c.source.set("MisplacedItemDetection");
-            h.annotations.append(c);
+            cl.classname.set(actualGtin);
+            cl.source.set("MisplacedItemDetection");
 
             if(actualGtin == gTinOfFacing){
                 cv::putText(textImage,actualGtin, text_loc, cv::FONT_HERSHEY_COMPLEX, 1.0,cv::Scalar(0,255,0),2);

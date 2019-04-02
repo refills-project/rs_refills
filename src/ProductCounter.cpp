@@ -287,6 +287,7 @@ public:
       plQuery.str(std::string());
       plQuery << "shelf_facing_product_type('" << facing.facingId << "', P),"
               << "owl_class_properties(P,shop:articleNumberOfProduct,AN),"
+ 	      << "rdf_has_prolog(AN,shop:dan,DAN),"
               << "comp_facingWidth('" << facing.facingId << "',literal(type(_, W_XSD))),atom_number(W_XSD,W),"
               << "comp_facingHeight('" << facing.facingId << "',literal(type(_, H_XSD))),atom_number(H_XSD,H).";
       outInfo("Asking query: " << plQuery.str());
@@ -300,8 +301,11 @@ public:
         facing.height = bdg["H"];
         facing.productId = bdg["P"].toString();
         facing.gtin = bdg["AN"].toString();
+        facing.dan = bdg["DAN"].toString();
         size_t loc = facing.gtin.find_last_of("GTIN_");
+        size_t loc2 = facing.dan.find_last_of("AN");
         loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2) : facing.gtin = "";
+        loc2 != std::string::npos ? facing.dan = facing.dan.substr(loc2 + 1, facing.dan.size() - loc2 - 2) : facing.dan = "";
       }
 
       //get the dimenstions of the product on the facing
@@ -536,7 +540,12 @@ public:
     rs::Detection detection = rs::create<rs::Detection>(tcas);
     detection.source.set("FacingDetection");
     detection.name.set(std::string(facing.gtin));
+
+    rs::Classification cl = rs::create<rs::Classification>(tcas);
+    cl.featurename.set(std::string(facing.dan));
+
     facingHyp.annotations.append(detection);
+    facingHyp.annotations.append(cl);
     scene.identifiables.append(facingHyp);
 
     for(int i = 0; i < cluster_indices_.size(); ++i) {
