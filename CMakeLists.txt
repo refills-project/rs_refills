@@ -75,3 +75,5 @@ target_link_libraries(processing_engine ${catkin_LIBRARIES})
 
 rs_add_library(rs_ImageSaver src/ImageSaver.cpp)
 target_link_libraries(rs_ImageSaver ${catkin_LIBRARIES})
+rs_add_library(rs_TestImageWriter src/TestImageWriter.cpp)
+target_link_libraries(rs_TestImageWriter ${catkin_LIBRARIES})
