@@ -53,7 +53,7 @@ public:
   {
       outInfo("process start");
       rs::StopWatch clock;
-      cv::Mat rgb;
+      cv::Mat rgb, rgb_flir;
       cv::Mat depth;
       cv::Rect facingRect;
       std::string gTinOfFacing;
@@ -66,12 +66,17 @@ public:
       cas.get(VIEW_COLOR_IMAGE, rgb);
       cas.get(VIEW_DEPTH_IMAGE, depth);
       cas.get(VIEW_CAMERA_INFO, cam_info_);
-      tf::StampedTransform camtoWorld, worldToCam;
-      rs::conversion::from(scene.viewPoint(),camtoWorld);
-;
+
+      cas.setActiveCamId(1);
+      cas.get(VIEW_COLOR_IMAGE, rgb_flir);
+      rs::Scene scene_flir = cas.getScene(1);
+
+      tf::StampedTransform cam_in_world, flir_in_world;
+      rs::conversion::from(scene.viewPoint(),cam_in_world);
+      rs::conversion::from(scene_flir.viewPoint(), flir_in_world);
 
       tf::Vector3 z_axes(0,0,1); //z in world coordinates
-      tf::Vector3 y_world = camtoWorld.getBasis().getColumn(1); //our cameras y axes in world coordinate
+      tf::Vector3 y_world = cam_in_world.getBasis().getColumn(1); //our cameras y axes in world coordinate
 
       double angle = std::acos(y_world.dot(z_axes));
       bool flipped = false;
@@ -83,6 +88,7 @@ public:
 
       std::vector<rs::ObjectHypothesis> hyps;
       scene.identifiables.filter(hyps);
+
       outInfo("Found " << hyps.size() << " hypotheses.");
       for(auto &h : hyps) {
        std::vector<rs::Detection> detections;
@@ -98,6 +104,7 @@ public:
        rs::conversion::from(roi.roi(), facingRect);
 
        std::fstream fstream;
+
        std::stringstream filename;
        filename << folder_path_ << "/"<< cam_info_.header.stamp.toNSec();
        fstream.open(filename.str() + "_meta.json", std::fstream::out);

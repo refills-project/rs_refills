@@ -60,13 +60,13 @@ private:
     enum class ShelfType {HANGING, STANDING};
     ShelfType shelfType;
 
-    tf::Stamped<tf::Pose> leftSeparator, rightSeparator;
+    tf::Stamped<tf::Pose> leftSeparator, rightSeparator, topRightCorner;
     std::string gtin;
     std::string dan;
     std::string productId;
     std::string facingId;
 
-    cv::Rect rect;
+    cv::Rect rect, rect_hires_;
     cv::Mat mask;
   };
 
@@ -98,9 +98,10 @@ private:
 //  image_transport::Publisher image_pub_;
 //  image_transport::ImageTransport it_;
 
-  tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_, originalSeparator1PoseImageFrame_, topRightCornerInImage_, originalSeparator2PoseImageFrame_;
+  tf::Stamped<tf::Pose> separatorPoseInImage_, nextSeparatorPoseInImage_, originalSeparator1PoseImageFrame_, topRightCornerInImage_, originalSeparator2PoseImageFrame_,
+                    leftSeparatorPoseInFlirImage_, rightSeparatorPoseInFlirImage_, topRightCornerInFlirImage_;
 
-  sensor_msgs::CameraInfo camInfo_;
+  sensor_msgs::CameraInfo camInfo_, flir_cam_info_;
 
   std::mutex mtx;
 
@@ -120,20 +121,20 @@ public:
 
     separatorSubscriber_ = nodeHandle_.subscribe("/separator_marker_detector_node/data_out", 50, &ProductCounter::separatorCb, this);
 
-    //create a new folder for saving images into
-    std::string packagePath = ros::package::getPath("rs_refills") + "/data_out";
-    boost::posix_time::ptime posixTime = ros::Time::now().toBoost();
-    std::string iso_time_str = boost::posix_time::to_iso_extended_string(posixTime);
-    folderPath_ = packagePath + "/" + iso_time_str;
-    outWarn(folderPath_);
-    boost::filesystem::path path(folderPath_);
-    if(!boost::filesystem::exists(path)) {
-      outInfo("Creating folder: " << path.string());
-      boost::filesystem::create_directory(path);
-    }
-    else {
-      outWarn("How can this already exist?");
-    }
+//    //create a new folder for saving images into
+//    std::string packagePath = ros::package::getPath("rs_refills") + "/data_out";
+//    boost::posix_time::ptime posixTime = ros::Time::now().toBoost();
+//    std::string iso_time_str = boost::posix_time::to_iso_extended_string(posixTime);
+//    folderPath_ = packagePath + "/" + iso_time_str;
+//    outWarn(folderPath_);
+//    boost::filesystem::path path(folderPath_);
+//    if(!boost::filesystem::exists(path)) {
+//      outInfo("Creating folder: " << path.string());
+//      boost::filesystem::create_directory(path);
+//    }
+//    else {
+//      outWarn("How can this already exist?");
+//    }
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -518,14 +519,15 @@ public:
     MEASURE_TIME;
     rs::SceneCas cas(tcas);
     rs::Scene scene = cas.getScene();
+    rs::Scene scene_flir = cas.getScene(1);
+
+
     rs::ObjectHypothesis facingHyp = rs::create<rs::ObjectHypothesis>(tcas);
 
-    //to make feature extraction happy;
-    cv::Rect rect_hires = facing_.rect;
-    rect_hires.height *= 1.5;
-    rect_hires.width *= 1.5;
-    rect_hires.x *= 1.5;
-    rect_hires.y *= 1.5;
+    //ACHTUNG!!!:: this is the rect in a diferent camera: flir hight res...yes it's an ugly thing,
+    // that is why I am commenting it here!!!!
+    cv::Rect rect_hires = facing_.rect_hires_;
+
 
     rs::ImageROI roi = rs::create<rs::ImageROI>(tcas);
     roi.roi(rs::conversion::to(tcas, facing_.rect));
@@ -547,6 +549,21 @@ public:
     facingHyp.annotations.append(detection);
     facingHyp.annotations.append(cl);
     scene.identifiables.append(facingHyp);
+
+//    rs::PoseAnnotation left_pose_annotation = rs::create<rs::PoseAnnotation>(tcas);
+//    rs::PoseAnnotation right_pose_annotation = rs::create<rs::PoseAnnotation>(tcas);
+//    rs::PoseAnnotation top_right_pose_annotation = rs::create<rs::PoseAnnotation>(tcas);
+
+//    left_pose_annotation.world.set( rs::conversion::to(cas, facing_.leftSeparator));
+//    left_pose_annotation.source.set("left");
+//    right_pose_annotation.world.set( rs::conversion::to(cas, facing_.rightSeparator));
+//    right_pose_annotation.source.set("right");
+//    top_right_pose_annotation.world.set( rs::conversion::to(cas, facing_.topRightCorner));
+//    top_right_pose_annotation.source.set("top-right");
+
+//    facingHyp.annotations.appen(left_pose_annotation);
+//    facingHyp.annotations.appen(right_pose_annotation);
+//    facingHyp.annotations.appen(top_right_pose_annotation);
 
     for(int i = 0; i < cluster_indices_.size(); ++i) {
       rs::ObjectHypothesis hyp = rs::create<rs::ObjectHypothesis>(tcas);
@@ -579,7 +596,9 @@ public:
       cas.get(VIEW_CLOUD, *cloud_ptr_);
       cas.get(VIEW_NORMALS, *cloud_normals);
       cas.get(VIEW_COLOR_IMAGE, rgb_);
+
       cas.get(VIEW_CAMERA_INFO, camInfo_);
+      cas.get(VIEW_CAMERA_INFO, flir_cam_info_,1);
 
       try {
         listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
@@ -637,39 +656,50 @@ public:
         if(facing_.shelfType == Facing::ShelfType::STANDING)
           listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
 
-        tf::Stamped<tf::Pose> topRightCorner;
+//        tf::Stamped<tf::Pose> topRightCorner;
         if(facing_.shelfType == Facing::ShelfType::STANDING) {
-          topRightCorner = facing_.rightSeparator;
-          topRightCorner.setOrigin(tf::Vector3(facing_.rightSeparator.getOrigin().x(),
+          facing_.topRightCorner = facing_.rightSeparator;
+          facing_.topRightCorner.setOrigin(tf::Vector3(facing_.rightSeparator.getOrigin().x(),
                                                facing_.rightSeparator.getOrigin().y(),
                                                facing_.rightSeparator.getOrigin().z() + facing_.productDims.h));
         }
         else {
-          topRightCorner = facing_.leftSeparator;
-          topRightCorner.setOrigin(tf::Vector3(facing_.leftSeparator.getOrigin().x() - facing_.productDims.d / 2.0,
+          facing_.topRightCorner = facing_.leftSeparator;
+          facing_.topRightCorner.setOrigin(tf::Vector3(facing_.leftSeparator.getOrigin().x() - facing_.productDims.d / 2.0,
                                                facing_.leftSeparator.getOrigin().y(),
                                                facing_.leftSeparator.getOrigin().z() - facing_.productDims.h));
         }
-        listener->waitForTransform(camInfo_.header.frame_id, topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */topRightCorner,/* "map"*/ topRightCornerInImage_);
+        listener->waitForTransform(camInfo_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
+        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */facing_.topRightCorner,/* "map"*/ topRightCornerInImage_);
 
-        facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_);
-        if(saveImgFiles_) {
-          rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
-          std::fstream fstream;
-          std::stringstream filename;
-          filename << folderPath_ << "/gtin_" << facing_.gtin << "_" << camInfo_.header.stamp.toNSec();
-          fstream.open(filename.str() + "_meta.json", std::fstream::out);
-          fstream << "{\"dan\":" << facing_.gtin << ","
-                  << " \"rect\":{" << "\"x\":" << facing_.rect.x << ",\n"
-                  << "\"y\":" << facing_.rect.y << ",\n"
-                  << "\"h\":" << facing_.rect.height << ",\n"
-                  << "\"w\":" << facing_.rect.width << "}\n";
-          fstream << "}";
-          fstream.flush();
-          fstream.close();
-          cv::imwrite(filename.str() + "_rgb.png", rgb_);
-        }
+
+        listener->waitForTransform(flir_cam_info_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
+        listener->transformPose(flir_cam_info_.header.frame_id, facing_.topRightCorner, topRightCornerInFlirImage_);
+        listener->transformPose(flir_cam_info_.header.frame_id, facing_.leftSeparator, leftSeparatorPoseInFlirImage_);
+        listener->transformPose(flir_cam_info_.header.frame_id, facing_.rightSeparator, rightSeparatorPoseInFlirImage_);
+
+
+        facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_, cam_info_);
+        facing_.rect_hires_ = calcRectInImage(leftSeparatorPoseInFlirImage_, rightSeparatorPoseInFlirImage_, topRightCornerInFlirImage_, flir_cam_info_);
+        listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
+
+
+//        if(saveImgFiles_) {
+//          rs::ScopeTime scopeTime(OUT_FILENAME, "saveImgFiles", __LINE__);
+//          std::fstream fstream;
+//          std::stringstream filename;
+//          filename << folderPath_ << "/gtin_" << facing_.gtin << "_" << camInfo_.header.stamp.toNSec();
+//          fstream.open(filename.str() + "_meta.json", std::fstream::out);
+//          fstream << "{\"dan\":" << facing_.gtin << ","
+//                  << " \"rect\":{" << "\"x\":" << facing_.rect.x << ",\n"
+//                  << "\"y\":" << facing_.rect.y << ",\n"
+//                  << "\"h\":" << facing_.rect.height << ",\n"
+//                  << "\"w\":" << facing_.rect.width << "}\n";
+//          fstream << "}";
+//          fstream.flush();
+//          fstream.close();
+//          cv::imwrite(filename.str() + "_rgb.png", rgb_);
+//        }
       }
       catch(tf::TransformException &ex) {
         outError(ex.what());
@@ -684,7 +714,10 @@ public:
       filterCloud(facing_);
 
       clusterCloud(facing_.productDims.d, cloud_normals);
+
+
       addToCas(tcas, facing_);
+
       separatorPoints_->clear();
       return true;
     }
@@ -692,11 +725,11 @@ public:
       return false;
   }
 
-  cv::Rect calcRectInImage(tf::Stamped<tf::Pose> separatorPose, tf::Stamped<tf::Pose> nextSeparatorPose,tf::Stamped<tf::Pose> topRightCorner)
+  cv::Rect calcRectInImage(tf::Stamped<tf::Pose> separatorPose, tf::Stamped<tf::Pose> nextSeparatorPose,tf::Stamped<tf::Pose> topRightCorner, const sensor_msgs::CameraInfo &cam_info)
   {
-    cv::Point2d bottomleftPoint = projection(separatorPose);
-    cv::Point2d toprightPOint = projection(topRightCorner);
-    cv::Point2d bottomRightPoint = projection(nextSeparatorPose);
+    cv::Point2d bottomleftPoint = projection(separatorPose,cam_info);
+    cv::Point2d toprightPOint = projection(topRightCorner,cam_info);
+    cv::Point2d bottomRightPoint = projection(nextSeparatorPose,cam_info);
 
     cv::Rect rect(std::min(bottomleftPoint.x, toprightPOint.x),
                   std::min(bottomleftPoint.y, toprightPOint.y),
@@ -731,7 +764,7 @@ public:
     return UIMA_ERR_NONE;
   }
 
-  cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D)
+  cv::Point2d projection(const tf::Stamped<tf::Pose> pose3D, sensor_msgs::CameraInfo cam_info)
   {
     std::vector<cv::Point3d> objectPoints;
     objectPoints.push_back(cv::Point3d(pose3D.getOrigin().x(), pose3D.getOrigin().y(), pose3D.getOrigin().z()));
@@ -740,21 +773,21 @@ public:
 
     cv::Mat P(3, 4, cv::DataType<double>::type);
     //    P.data = *camInfo_.P.data();
-    P.at<double>(0, 0) = camInfo_.P[0];
-    P.at<double>(1, 0) = camInfo_.P[4];
-    P.at<double>(2, 0) = camInfo_.P[8];
+    P.at<double>(0, 0) = cam_info.P[0];
+    P.at<double>(1, 0) = cam_info.P[4];
+    P.at<double>(2, 0) = cam_info.P[8];
 
-    P.at<double>(0, 1) = camInfo_.P[1];
-    P.at<double>(1, 1) = camInfo_.P[5];
-    P.at<double>(2, 1) = camInfo_.P[9];
+    P.at<double>(0, 1) = cam_info.P[1];
+    P.at<double>(1, 1) = cam_info.P[5];
+    P.at<double>(2, 1) = cam_info.P[9];
 
-    P.at<double>(0, 2) = camInfo_.P[2];
-    P.at<double>(1, 2) = camInfo_.P[6];
-    P.at<double>(2, 2) = camInfo_.P[10];
+    P.at<double>(0, 2) = cam_info.P[2];
+    P.at<double>(1, 2) = cam_info.P[6];
+    P.at<double>(2, 2) = cam_info.P[10];
 
-    P.at<double>(0, 3) = camInfo_.P[3];
-    P.at<double>(1, 3) = camInfo_.P[7];
-    P.at<double>(2, 3) = camInfo_.P[11];
+    P.at<double>(0, 3) = cam_info.P[3];
+    P.at<double>(1, 3) = cam_info.P[7];
+    P.at<double>(2, 3) = cam_info.P[11];
 
     // Decompose the projection matrix into:
     cv::Mat K(3, 3, cv::DataType<double>::type); // intrinsic parameter matrix
@@ -797,10 +830,10 @@ public:
     }
 
     //THE NICE WAY
-    cv::Point leftSepInImage =  projection(separatorPoseInImage_);
-    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_);
-    cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_);
-    cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_);
+    cv::Point leftSepInImage =  projection(separatorPoseInImage_, cam_info_);
+    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_,cam_info_);
+    cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_,cam_info_);
+    cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_,cam_info_);
 
     if(leftSepInImage.y > camInfo_.height) leftSepInImage.y =  camInfo_.height - 2;
     if(rightSepInImage.y > camInfo_.height) rightSepInImage.y =  camInfo_.height - 2;
