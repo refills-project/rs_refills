@@ -55,7 +55,7 @@ public:
       rs::StopWatch clock;
       cv::Mat rgb, rgb_flir;
       cv::Mat depth;
-      cv::Rect facingRect;
+      cv::Rect facingRect, facingRectHires;
       std::string gTinOfFacing;
 
       std::string testFileName = "";
@@ -102,6 +102,7 @@ public:
        rs::Classification &cl = classification[0];
        rs::ImageROI roi = h.rois();
        rs::conversion::from(roi.roi(), facingRect);
+       rs::conversion::from(roi.roi(), facingRectHires);
 
        std::fstream fstream;
 
@@ -115,14 +116,18 @@ public:
                << " \"rect\":{" << "\"x\":" << facingRect.x << ",\n"
                << "\"y\":" << facingRect.y << ",\n"
                << "\"h\":" << facingRect.height << ",\n"
-               << "\"w\":" << facingRect.width << "}\n";
+               << "\"w\":" << facingRect.width << "}\n"
+               << " \"rect_hires\":{" << "\"x\":" << facingRectHires.x << ",\n"
+               << "\"y\":" << facingRectHires.y << ",\n"
+               << "\"h\":" << facingRectHires.height << ",\n"
+               << "\"w\":" << facingRectHires.width << "}\n";
+
        fstream << "}";
        fstream.flush();
        fstream.close();
        cv::imwrite(filename.str() + "_rgb.png", rgb);
+       cv::imwrite(filename.str() + "_rgb_hires.png", rgb_flir);
        cv::imwrite(filename.str() + "_depth.png", depth);
-
-
       }
 
     return UIMA_ERR_NONE;
