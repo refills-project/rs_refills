@@ -54,6 +54,7 @@ public:
       outInfo("process start");
       rs::StopWatch clock;
       cv::Mat rgb;
+      cv::Mat depth;
       cv::Rect facingRect;
       std::string gTinOfFacing;
 
@@ -63,6 +64,7 @@ public:
       rs::SceneCas cas(tcas);
       rs::Scene scene = cas.getScene();
       cas.get(VIEW_COLOR_IMAGE, rgb);
+      cas.get(VIEW_DEPTH_IMAGE, depth);
       cas.get(VIEW_CAMERA_INFO, cam_info_);
       tf::StampedTransform camtoWorld, worldToCam;
       rs::conversion::from(scene.viewPoint(),camtoWorld);
@@ -111,6 +113,7 @@ public:
        fstream.flush();
        fstream.close();
        cv::imwrite(filename.str() + "_rgb.png", rgb);
+       cv::imwrite(filename.str() + "_depth.png", depth);
 
 
       }
