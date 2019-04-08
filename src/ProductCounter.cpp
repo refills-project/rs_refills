@@ -679,7 +679,7 @@ public:
         listener->transformPose(flir_cam_info_.header.frame_id, facing_.rightSeparator, rightSeparatorPoseInFlirImage_);
 
 
-        facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_, cam_info_);
+        facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_, camInfo_);
         facing_.rect_hires_ = calcRectInImage(leftSeparatorPoseInFlirImage_, rightSeparatorPoseInFlirImage_, topRightCornerInFlirImage_, flir_cam_info_);
         listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
 
@@ -830,10 +830,10 @@ public:
     }
 
     //THE NICE WAY
-    cv::Point leftSepInImage =  projection(separatorPoseInImage_, cam_info_);
-    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_,cam_info_);
-    cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_,cam_info_);
-    cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_,cam_info_);
+    cv::Point leftSepInImage =  projection(separatorPoseInImage_, camInfo_);
+    cv::Point rightSepInImage =  projection(nextSeparatorPoseInImage_,camInfo_);
+    cv::Point origLeftSepInImage =  projection(originalSeparator1PoseImageFrame_, camInfo_);
+    cv::Point origRightSepInImage =  projection(originalSeparator2PoseImageFrame_,camInfo_);
 
     if(leftSepInImage.y > camInfo_.height) leftSepInImage.y =  camInfo_.height - 2;
     if(rightSepInImage.y > camInfo_.height) rightSepInImage.y =  camInfo_.height - 2;
