@@ -5,6 +5,7 @@
 //RS
 #include <rs/scene_cas.h>
 #include <rs/utils/time.h>
+#include <rs/DrawingAnnotator.h>
 
 #include <ros/package.h>
 
@@ -14,13 +15,15 @@
 using namespace uima;
 
 
-class ImageSaver : public Annotator
+class ImageSaver : public DrawingAnnotator
 {
 private:
     sensor_msgs::CameraInfo cam_info_;
     std::string folder_path_;
+    cv::Mat rgb_flir_;
 public:
 
+  ImageSaver():DrawingAnnotator(__func__){ }
   TyErrorId initialize(AnnotatorContext &ctx)
   {
     outInfo("initialize");
@@ -49,11 +52,11 @@ public:
     return UIMA_ERR_NONE;
   }
 
-  TyErrorId process(CAS &tcas, ResultSpecification const &res_spec)
+  TyErrorId processWithLock(CAS &tcas, ResultSpecification const &res_spec)
   {
       outInfo("process start");
       rs::StopWatch clock;
-      cv::Mat rgb, rgb_flir;
+      cv::Mat rgb;
       cv::Mat depth;
       cv::Rect facingRect, facingRectHires;
       std::string gTinOfFacing;
@@ -68,12 +71,12 @@ public:
       cas.get(VIEW_CAMERA_INFO, cam_info_);
 
       cas.setActiveCamId(1);
-      cas.get(VIEW_COLOR_IMAGE, rgb_flir);
+      cas.get(VIEW_COLOR_IMAGE, rgb_flir_);
       rs::Scene scene_flir = cas.getScene(1);
 
       tf::StampedTransform cam_in_world, flir_in_world;
       rs::conversion::from(scene.viewPoint(),cam_in_world);
-      rs::conversion::from(scene_flir.viewPoint(), flir_in_world);
+//      rs::conversion::from(scene_flir.viewPoint(), flir_in_world);
 
       tf::Vector3 z_axes(0,0,1); //z in world coordinates
       tf::Vector3 y_world = cam_in_world.getBasis().getColumn(1); //our cameras y axes in world coordinate
@@ -102,7 +105,7 @@ public:
        rs::Classification &cl = classification[0];
        rs::ImageROI roi = h.rois();
        rs::conversion::from(roi.roi(), facingRect);
-       rs::conversion::from(roi.roi(), facingRectHires);
+       rs::conversion::from(roi.roi_hires(), facingRectHires);
 
        std::fstream fstream;
 
@@ -116,7 +119,7 @@ public:
                << " \"rect\":{" << "\"x\":" << facingRect.x << ",\n"
                << "\"y\":" << facingRect.y << ",\n"
                << "\"h\":" << facingRect.height << ",\n"
-               << "\"w\":" << facingRect.width << "}\n"
+               << "\"w\":" << facingRect.width << "},\n"
                << " \"rect_hires\":{" << "\"x\":" << facingRectHires.x << ",\n"
                << "\"y\":" << facingRectHires.y << ",\n"
                << "\"h\":" << facingRectHires.height << ",\n"
@@ -126,11 +129,19 @@ public:
        fstream.flush();
        fstream.close();
        cv::imwrite(filename.str() + "_rgb.png", rgb);
-       cv::imwrite(filename.str() + "_rgb_hires.png", rgb_flir);
+       cv::imwrite(filename.str() + "_rgb_hires.png", rgb_flir_);
        cv::imwrite(filename.str() + "_depth.png", depth);
       }
 
+    cv::rectangle(rgb_flir_,facingRectHires,cv::Scalar(0, 255, 0),3);
     return UIMA_ERR_NONE;
+  }
+
+  void drawImageWithLock(cv::Mat &disp)
+  {
+    if(!rgb_flir_.empty())
+      disp = rgb_flir_.clone();
+    else disp = cv::Mat::ones(480, 640, CV_8UC3);
   }
 };
 

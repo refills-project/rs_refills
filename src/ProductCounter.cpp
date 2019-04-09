@@ -736,13 +736,12 @@ public:
                   std::fabs(bottomleftPoint.x - bottomRightPoint.x), std::fabs(bottomleftPoint.y - toprightPOint.y));
     rect.x = std::max(0, rect.x);
     rect.y = std::max(0, rect.y);
-    if((rect.x + rect.width) > rgb_.cols) {
-      rect.width = rgb_.cols - rect.x;
+    if((rect.x + rect.width) > cam_info.width) {
+      rect.width =  cam_info.width - rect.x;
     }
-    if((rect.y + rect.height) > rgb_.rows) {
-      rect.height = rgb_.rows - rect.y;
+    if((rect.y + rect.height) >  cam_info.height) {
+      rect.height =  cam_info.height - rect.y;
     }
-
     return rect;
   }
 
@@ -755,12 +754,11 @@ public:
     cluster_indices_.clear();
     cluster_boxes.clear();
 
-    countObject(tcas);
-    drawOnImage();
-    rs::SceneCas cas(tcas);
-
-    cas.set("display_image",rgb_);
-
+    if(countObject(tcas))
+    {drawOnImage();
+        rs::SceneCas cas(tcas);
+        cas.set("display_image",rgb_);
+}
     return UIMA_ERR_NONE;
   }
 
