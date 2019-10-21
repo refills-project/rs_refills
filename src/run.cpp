@@ -40,6 +40,7 @@
 
 #include <rs/flowcontrol/RSProcessManager.h>
 
+
 #include <ros/ros.h>
 #include <ros/package.h>
 
@@ -54,7 +55,7 @@
 class RSRefillsProcessManager: public RSProcessManager
 {
 public:
-  RSRefillsProcessManager(bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(usevis, wait, nh, ".")
+  RSRefillsProcessManager(std::string aae_file, bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(aae_file, usevis, rs::KnowledgeEngine::KnowledgeEngineType::SWI_PROLOG)
   {
 
   }
@@ -67,13 +68,18 @@ public:
   {
     outInfo("Handling Query for Refills stuff");
     outInfo("JSON Reuqest: " << req);
-    queryInterface->parseQuery(req);
+    query_interface_->parseQuery(req);
     std::vector<std::string> newPipelineOrder;
-    QueryInterface::QueryType queryType = queryInterface->processQuery(newPipelineOrder);
-    for(auto p : newPipelineOrder) outInfo(p);
+    std::vector<std::vector<std::string>> newPipelineOrders;
+    QueryInterface::QueryType queryType = query_interface_->processQuery(newPipelineOrders);
+    for(auto p : newPipelineOrder) 
+      outInfo(p);
+
     //these are hacks that should be handled by integration of these components in the pipeline planning process
+    rapidjson::Document& query = query_interface_->getQueryDocument();
+
     if(newPipelineOrder.empty() && queryType == QueryInterface::QueryType::SCAN) {
-      rapidjson::Value &val = queryInterface->query["scan"];
+      rapidjson::Value &val = query["scan"];
       if(val.HasMember("type")) {
         std::string  type = val["type"].GetString();
 
@@ -122,36 +128,54 @@ public:
 
     {
       std::lock_guard<std::mutex> lock(processing_mutex_);
-      if(queryType == QueryInterface::QueryType::SCAN) {
-        rapidjson::Value &val = queryInterface->query["scan"];
-        if(val.HasMember("command")) {
-          std::string  command = val["command"].GetString();
-          if(command == "start") {
-            engine_.setQuery(req);
-            engine_.changeLowLevelPipeline(newPipelineOrder);
-            waitForServiceCall_ = false;
-            return true;
-          }
-          else if(command == "stop") {
-            waitForServiceCall_ = true;
-            engine_.setNextPipeline(newPipelineOrder);
-            engine_.applyNextPipeline();
-            engine_.process(res, req);
-            return true;
-          }
-        }
-      }
-      else if(queryType == QueryInterface::QueryType::DETECT) {
-        engine_.setQuery(req);
-        engine_.setNextPipeline(newPipelineOrder);
-        engine_.applyNextPipeline();
-        engine_.process(res, req);
+      if(queryType == QueryInterface::QueryType::SCAN) 
+      {
+        rapidjson::Value& val = query["scan"];
+        if (val.HasMember("command"))
+        {
+           std::string command = val["command"].GetString();
+           engine_->resetCas();
+           rs::Query query = rs::create<rs::Query>(*engine_->getCas());
+           query.query.set(req);
+           rs::SceneCas sceneCas(*engine_->getCas());
+           sceneCas.set("QUERY", query);
+           if (command == "start")
+           {
+             engine_->setContinuousPipelineOrder(newPipelineOrder);
+             engine_->setPipelineOrdering(newPipelineOrder);
+             engine_->processOnce();
+             wait_for_service_call_ = false;
+             return true;
+           }
+           else if (command == "stop")
+           {
+             wait_for_service_call_ = true;
+             engine_->setPipelineOrdering(newPipelineOrder);
+             engine_->processOnce(res, req);
+             rs::ObjectDesignatorFactory dw(engine_->getCas(), rs::ObjectDesignatorFactory::Mode::CLUSTER);
+             dw.getObjectDesignators(res);
+             return true;
+           }
+       }
+       else if(queryType == QueryInterface::QueryType::DETECT) 
+       {
+        engine_->resetCas();
+        rs::Query query = rs::create<rs::Query>(*engine_->getCas());
+        query.query.set(req);
+        rs::SceneCas sceneCas(*engine_->getCas());
+        sceneCas.set("QUERY", query);
+        engine_->setPipelineOrdering(newPipelineOrder);
+        engine_->processOnce(res, req);
+        outInfo("Converting to Json");
+        rs::ObjectDesignatorFactory dw(engine_->getCas(), rs::ObjectDesignatorFactory::Mode::CLUSTER);
+        dw.getObjectDesignators(res);
         return true;
-      }
-      else {
+       }
+       else 
+       {
         outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
-        processing_mutex_.unlock();
         return false;
+       }    
       }
     }
     return false;
@@ -187,7 +211,7 @@ int main(int argc, char *argv[])
   nh.param("ae", analysisEnginesName, std::string(""));
   nh.param("vis", useVisualizer, false);
 
-  ros::service::waitForService("/json_prolog/simple_query");
+  ros::service::waitForService("/rosprolog/query");
   rs::common::getAEPaths(analysisEnginesName, analysisEngineFile);
 
   if(analysisEngineFile.empty()) {
@@ -201,13 +225,9 @@ int main(int argc, char *argv[])
   std::string configFile = ros::package::getPath("rs_refills") + "/config/config_refills.yaml";
 
   try {
-    RSRefillsProcessManager manager(useVisualizer, waitForServiceCall, nh);
+    RSRefillsProcessManager manager(analysisEngineFile, useVisualizer, waitForServiceCall, nh);
     manager.setUseIdentityResolution(false);
-
-    manager.pause();
-    manager.init(analysisEngineFile, configFile, false, false);
     manager.run();
-    manager.stop();
   }
   catch(const rs::Exception &e) {
     outError("Exception: " << std::endl << e.what());

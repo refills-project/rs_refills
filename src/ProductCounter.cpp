@@ -36,7 +36,7 @@
 #include <rapidjson/document.h>
 
 //json_prolog
-#include <json_prolog/prolog.h>
+#include <rosprolog/PrologClient.h>
 #include <refills_msgs/SeparatorArray.h>
 
 #include <boost/date_time/posix_time/posix_time.hpp>
@@ -212,12 +212,12 @@ public:
     //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
     MEASURE_TIME;
     std::stringstream plQuery;
-    json_prolog::Prolog pl;
+    PrologClient pl;
     plQuery << "shelf_facing(F,'" << facing.facingId << "'),shelf_layer_standing(F).";
 
     try {
       outInfo("Asking query: " << plQuery.str());
-      json_prolog::PrologQueryProxy bdgs = pl.query(plQuery.str());
+      PrologQuery bdgs = pl.query(plQuery.str());
       if(bdgs.begin() == bdgs.end()) {
         outInfo("facing is on a mounting hanging ");
         facing.shelfType =Facing::ShelfType::HANGING;
