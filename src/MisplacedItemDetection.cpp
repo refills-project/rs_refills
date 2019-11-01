@@ -74,7 +74,7 @@ private:
   actionlib::SimpleActionClient<refills_msgs::ProductIdentificationAction> *ac;
 public:
 
-  MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(BIN), nodeHandle_("~"), it_(nodeHandle_)
+  MisplacedItemDetection(): DrawingAnnotator(__func__), imgIdx_(0), modelIdx_(0), testMode_(false), displayMode(MATCHES), nodeHandle_("~"), it_(nodeHandle_)
   {
     detector = cv::ORB::create();
     canny_ = cv::Mat::zeros(640, 480, CV_8U);
@@ -318,7 +318,6 @@ public:
 
     float avgDist = 0.0;
     uint8_t mi = 0;
-
     for(; mi < matches.size() && mi < 50; ++mi) {
       avgDist += (1 - static_cast<float>(matches[mi].distance / 256));
     }
@@ -444,7 +443,6 @@ public:
     }
     else return 0.0;
   }
-  
 
   TyErrorId destroy()
   {
@@ -640,7 +638,7 @@ public:
       disp = mask_.clone();
       break;
     case MATCHES:
-      disp = disp_.clone();
+      disp = disp_img_.clone();
       break;
     case HIST:
       disp = hist_.clone();

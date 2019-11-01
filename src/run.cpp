@@ -57,7 +57,7 @@ class RSRefillsProcessManager: public RSProcessManager
 public:
   RSRefillsProcessManager(std::string aae_file, bool usevis, bool wait, ros::NodeHandle nh): RSProcessManager(aae_file, usevis, rs::KnowledgeEngine::KnowledgeEngineType::SWI_PROLOG)
   {
-
+    this->setWaitForService(wait); 
   }
   virtual ~RSRefillsProcessManager()
   {
@@ -138,7 +138,8 @@ public:
            rs::Query query = rs::create<rs::Query>(*engine_->getCas());
            query.query.set(req);
            rs::SceneCas sceneCas(*engine_->getCas());
-           sceneCas.set("QUERY", query);
+           outInfo("Setting query in CAS");
+           sceneCas.setFS("QUERY", query);
            if (command == "start")
            {
              engine_->setContinuousPipelineOrder(newPipelineOrder);
@@ -156,14 +157,15 @@ public:
              dw.getObjectDesignators(res);
              return true;
            }
-       }
-       else if(queryType == QueryInterface::QueryType::DETECT) 
-       {
+         }
+      }
+      else if(queryType == QueryInterface::QueryType::DETECT)
+      {
         engine_->resetCas();
         rs::Query query = rs::create<rs::Query>(*engine_->getCas());
         query.query.set(req);
         rs::SceneCas sceneCas(*engine_->getCas());
-        sceneCas.set("QUERY", query);
+        sceneCas.setFS("QUERY", query);
         engine_->setPipelineOrdering(newPipelineOrder);
         engine_->processOnce(res, req);
         outInfo("Converting to Json");
@@ -171,15 +173,15 @@ public:
         dw.getObjectDesignators(res);
         return true;
        }
-       else 
-       {
+      else
+      {
         outError("Malformed query: The refills scenario only handles Scanning commands(for now)");
         return false;
-       }    
       }
-    }
+    }//end of lock
     return false;
   }
+
 };
 
 void help()

@@ -19,6 +19,8 @@
 #include <rs/utils/common.h>
 #include <rs/types/all_types.h>
 #include <rs/DrawingAnnotator.h>
+#include <rs/io/TFListenerProxy.h>
+
 
 
 //image_transport
@@ -88,7 +90,8 @@ private:
   };
 
 
-  tf::TransformListener *listener;
+
+  rs::TFListenerProxy *listener_;
   ros::Subscriber separatorSubscriber_;
 
   std::vector<BoundingBox> cluster_boxes;
@@ -115,7 +118,7 @@ public:
     cloud_transformed_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     cloud_ptr_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
     separatorPoints_ = boost::make_shared<pcl::PointCloud<pcl::PointXYZRGBA>>();
-    listener = new tf::TransformListener(nodeHandle_, ros::Duration(10.0));
+    listener_ = new rs::TFListenerProxy();
 
 //    image_pub_ = it_.advertise("counting_image", 1, true);
 
@@ -163,8 +166,8 @@ public:
         tf::Stamped<tf::Pose> poseStamped, poseBase;
         tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
         try {
-          listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
-          listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+          listener_->listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+          listener_->listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
           pcl::PointXYZRGBA pt;
           pt.x = poseBase.getOrigin().x();
@@ -241,16 +244,22 @@ public:
         std::string leftSepTFId, rightSepTFId;
         for(auto bdg : bdgs) {
           leftSepTFId = bdg["LFrameName"].toString();
-          leftSepTFId = leftSepTFId.substr(1, leftSepTFId.size() - 2);
+//          leftSepTFId = leftSepTFId.substr(1, leftSepTFId.size() - 2);
           rightSepTFId = bdg["RFrameName"].toString();
-          rightSepTFId = rightSepTFId.substr(1, rightSepTFId.size() - 2);
+//          rightSepTFId = rightSepTFId.substr(1, rightSepTFId.size() - 2);
           break;
         }
         tf::StampedTransform leftSep, rightSep;
-        listener->waitForTransform(localFrameName_, leftSepTFId, ros::Time(0), ros::Duration(2.0));
-        listener->lookupTransform(localFrameName_, leftSepTFId, ros::Time(0), leftSep);
-        listener->waitForTransform(localFrameName_, rightSepTFId, ros::Time(0), ros::Duration(2.0));
-        listener->lookupTransform(localFrameName_, rightSepTFId, ros::Time(0), rightSep);
+        try{
+        listener_->listener->waitForTransform(localFrameName_, leftSepTFId, ros::Time(0), ros::Duration(2.0));
+        listener_->listener->lookupTransform(localFrameName_, leftSepTFId, ros::Time(0), leftSep);
+        listener_->listener->waitForTransform(localFrameName_, rightSepTFId, ros::Time(0), ros::Duration(2.0));
+        listener_->listener->lookupTransform(localFrameName_, rightSepTFId, ros::Time(0), rightSep);
+        }
+        catch(tf::TransformException &ex) {
+          outError("Exception when looking up separator locations: " << ex.what());
+          return false;
+        }
         facing.leftSeparator.setRotation(leftSep.getRotation());
         facing.leftSeparator.setOrigin(leftSep.getOrigin());
         facing.leftSeparator.frame_id_ = leftSep.frame_id_;
@@ -273,11 +282,11 @@ public:
         std::string mountingBarTFId;
         for(auto bdg : bdgs) {
           mountingBarTFId = bdg["MFrameName"].toString();
-          mountingBarTFId = mountingBarTFId.substr(1, mountingBarTFId.size() - 2);
+//          mountingBarTFId = mountingBarTFId.substr(1, mountingBarTFId.size() - 2);
           break;
         }
         tf::StampedTransform mountingBar;
-        listener->lookupTransform(localFrameName_, mountingBarTFId, ros::Time(0), mountingBar);
+        listener_->listener->lookupTransform(localFrameName_, mountingBarTFId, ros::Time(0), mountingBar);
         facing.leftSeparator.setRotation(mountingBar.getRotation());
         facing.leftSeparator.setOrigin(mountingBar.getOrigin());
         facing.leftSeparator.frame_id_ = mountingBar.frame_id_;
@@ -287,10 +296,11 @@ public:
       //get dimenstions and product type of facing
       plQuery.str(std::string());
       plQuery << "shelf_facing_product_type('" << facing.facingId << "', P),"
-              << "owl_class_properties(P,shop:articleNumberOfProduct,AN),"
- 	      << "rdf_has_prolog(AN,shop:dan,DAN),"
-              << "comp_facingWidth('" << facing.facingId << "',literal(type(_, W_XSD))),atom_number(W_XSD,W),"
-              << "comp_facingHeight('" << facing.facingId << "',literal(type(_, H_XSD))),atom_number(H_XSD,H).";
+              << "owl_has(P, 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Z),"
+              << "owl_restriction(Z,restriction(shop:'articleNumberOfProduct',has_value(AN))),"
+              << "rdf_has(AN, shop:dan, literal(type(_,DAN))),"
+              << "comp_facingWidth('" << facing.facingId << "', W),"
+              << "comp_facingHeight('" << facing.facingId << "',H).";
       outInfo("Asking query: " << plQuery.str());
       bdgs = pl.query(plQuery.str());
       if(bdgs.begin() == bdgs.end()) {
@@ -305,18 +315,27 @@ public:
         facing.dan = bdg["DAN"].toString();
         size_t loc = facing.gtin.find_last_of("GTIN_");
 //      size_t loc2 = facing.dan.find_last_of("AN");
-        loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2) : facing.gtin = "";
+        loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc+1, facing.gtin.size() - loc-2) : facing.gtin = "";
+//        loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2) : facing.gtin = "";
 //        loc2 != std::string::npos ? facing.dan = facing.dan.substr(loc2 + 1, facing.dan.size() - loc2 - 2) : facing.dan = "";
       }
 
       //get the dimenstions of the product on the facing
       plQuery.str(std::string());
-      plQuery << "owl_class_properties(" << facing.productId << ",shop:depthOfProduct," <<
-              "literal(type(_,D_XSD))),atom_number(D_XSD,D),"
-              << "owl_class_properties(" << facing.productId << ",shop:widthOfProduct," <<
-              "literal(type(_,W_XSD))),atom_number(W_XSD,W),"
-              << "owl_class_properties(" << facing.productId << ",shop:heightOfProduct," <<
-              "literal(type(_,H_XSD))),atom_number(H_XSD,H),!.";
+
+      plQuery<< "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zd),"
+             << "owl_restriction(Zd,restriction(shop:'depthOfProduct',has_value(literal(type(_,D_XSD))))),atom_number(D_XSD,D),"
+             << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zw),"
+             << "owl_restriction(Zw,restriction(shop:'widthOfProduct',has_value(literal(type(_,W_XSD))))),atom_number(W_XSD,W),"
+             << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zh),"
+             << "owl_restriction(Zh,restriction(shop:'heightOfProduct',has_value(literal(type(_,H_XSD))))),atom_number(H_XSD,H).";
+
+//      plQuery << "owl_class_properties(" << facing.productId << ",shop:depthOfProduct," <<
+//              "literal(type(_,D_XSD))),atom_number(D_XSD,D),"
+//              << "owl_class_properties(" << facing.productId << ",shop:widthOfProduct," <<
+//              "literal(type(_,W_XSD))),atom_number(W_XSD,W),"
+//              << "owl_class_properties(" << facing.productId << ",shop:heightOfProduct," <<
+//              "literal(type(_,H_XSD))),atom_number(H_XSD,H),!.";
       outInfo("Asking query: " << plQuery.str());
       bdgs = pl.query(plQuery.str());
       if(bdgs.begin() == bdgs.end()) {
@@ -601,14 +620,14 @@ public:
       cas.get(VIEW_CAMERA_INFO, flir_cam_info_,1);
 
       try {
-        listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
-        listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
+        listener_->listener->waitForTransform(localFrameName_, camInfo_.header.frame_id, ros::Time(0), ros::Duration(2));
+        listener_->listener->lookupTransform(localFrameName_, camInfo_.header.frame_id,  ros::Time(0), camToWorld_);
         if(facing_.leftSeparator.frame_id_ != localFrameName_) {
-          listener->transformPose(localFrameName_, facing_.leftSeparator, facing_.leftSeparator);
+          listener_->listener->transformPose(localFrameName_, facing_.leftSeparator, facing_.leftSeparator);
           outInfo("New Separator location is: [" << facing_.leftSeparator.getOrigin().x() << "," << facing_.leftSeparator.getOrigin().y() << "," << facing_.leftSeparator.getOrigin().z() << "]");
         }
         if(facing_.rightSeparator.frame_id_ != localFrameName_ && facing_.shelfType != Facing::ShelfType::HANGING) {
-          listener->transformPose(localFrameName_, facing_.rightSeparator, facing_.rightSeparator);
+          listener_->listener->transformPose(localFrameName_, facing_.rightSeparator, facing_.rightSeparator);
           outInfo("New Separator location is: [" << facing_.rightSeparator.getOrigin().x() << ","
                   << facing_.rightSeparator.getOrigin().y() << ","
                   << facing_.rightSeparator.getOrigin().z() << "]");
@@ -616,8 +635,8 @@ public:
 
         if(facing_.shelfType == facing_.ShelfType::STANDING) {
           //let's find the closest separators in the current detection;
-          listener->transformPose(camInfo_.header.frame_id, facing_.leftSeparator, originalSeparator1PoseImageFrame_);
-          listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, originalSeparator2PoseImageFrame_);
+          listener_->listener->transformPose(camInfo_.header.frame_id, facing_.leftSeparator, originalSeparator1PoseImageFrame_);
+          listener_->listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, originalSeparator2PoseImageFrame_);
 
           //start fixing poses of separators
           if(separatorPoints_->size() > 2) {
@@ -652,9 +671,9 @@ public:
           //end fixing positions;
         }
 
-        listener->transformPose(camInfo_.header.frame_id, facing_.leftSeparator, separatorPoseInImage_);
+        listener_->listener->transformPose(camInfo_.header.frame_id, facing_.leftSeparator, separatorPoseInImage_);
         if(facing_.shelfType == Facing::ShelfType::STANDING)
-          listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
+          listener_->listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
 
 //        tf::Stamped<tf::Pose> topRightCorner;
         if(facing_.shelfType == Facing::ShelfType::STANDING) {
@@ -669,19 +688,19 @@ public:
                                                facing_.leftSeparator.getOrigin().y(),
                                                facing_.leftSeparator.getOrigin().z() - facing_.productDims.h));
         }
-        listener->waitForTransform(camInfo_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
-        listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */facing_.topRightCorner,/* "map"*/ topRightCornerInImage_);
+        listener_->listener->waitForTransform(camInfo_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
+        listener_->listener->transformPose(camInfo_.header.frame_id,/* ros::Time(0), */facing_.topRightCorner,/* "map"*/ topRightCornerInImage_);
 
 
-        listener->waitForTransform(flir_cam_info_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
-        listener->transformPose(flir_cam_info_.header.frame_id, facing_.topRightCorner, topRightCornerInFlirImage_);
-        listener->transformPose(flir_cam_info_.header.frame_id, facing_.leftSeparator, leftSeparatorPoseInFlirImage_);
-        listener->transformPose(flir_cam_info_.header.frame_id, facing_.rightSeparator, rightSeparatorPoseInFlirImage_);
+        listener_->listener->waitForTransform(flir_cam_info_.header.frame_id, facing_.topRightCorner.frame_id_, ros::Time(0), ros::Duration(2.0));
+        listener_->listener->transformPose(flir_cam_info_.header.frame_id, facing_.topRightCorner, topRightCornerInFlirImage_);
+        listener_->listener->transformPose(flir_cam_info_.header.frame_id, facing_.leftSeparator, leftSeparatorPoseInFlirImage_);
+        listener_->listener->transformPose(flir_cam_info_.header.frame_id, facing_.rightSeparator, rightSeparatorPoseInFlirImage_);
 
 
         facing_.rect = calcRectInImage(separatorPoseInImage_, nextSeparatorPoseInImage_, topRightCornerInImage_, camInfo_);
         facing_.rect_hires_ = calcRectInImage(leftSeparatorPoseInFlirImage_, rightSeparatorPoseInFlirImage_, topRightCornerInFlirImage_, flir_cam_info_);
-        listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
+        listener_->listener->transformPose(camInfo_.header.frame_id, facing_.rightSeparator, nextSeparatorPoseInImage_);
 
 
 //        if(saveImgFiles_) {
@@ -706,16 +725,19 @@ public:
         return UIMA_ERR_NONE;
       }
 
+      outInfo("Transforming cloud into global frame");
       Eigen::Affine3d eigenTransform;
       tf::transformTFToEigen(camToWorld_, eigenTransform);
       pcl::transformPointCloud<pcl::PointXYZRGBA>(*cloud_ptr_, *cloudFiltered_, eigenTransform);
       *cloud_transformed_ = * cloudFiltered_;
 
+      outInfo("Filtering cloud");
       filterCloud(facing_);
 
+      outInfo("Clustering Cloud");
       clusterCloud(facing_.productDims.d, cloud_normals);
 
-
+      outInfo("Addding results to the CAS");
       addToCas(tcas, facing_);
 
       separatorPoints_->clear();

@@ -4,7 +4,7 @@
   <include file="$(find refills_intel_product_verification)/launch/product_verification.launch"/>
 
   <!-- launch refills specific RoboSherlock -->
-  <node name="RoboSherlock" pkg="rs_refills" type="processing_engine" output="log">
+  <node name="RoboSherlock" pkg="rs_refills" type="processing_engine" output="screen">
     <param name="ae" type="string" value="refills"/>  
     <param name="vis" type="boolean" value="false"/>  
   </node>

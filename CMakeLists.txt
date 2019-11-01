@@ -5,6 +5,8 @@ find_package(PCL 1.8 REQUIRED)
 
 find_package(refills_models QUIET)
 
+add_definitions(${PCL_DEFINITIONS})
+
 #need to add this so RSProcessManager from RoboSherlock has QueryInterface
 #add_definitions(-DWITH_JSON_PROLOG)
 
@@ -77,3 +79,6 @@ rs_add_library(rs_ImageSaver src/ImageSaver.cpp)
 target_link_libraries(rs_ImageSaver ${catkin_LIBRARIES})
 #rs_add_library(rs_TestImageWriter src/TestImageWriter.cpp)
 #target_link_libraries(rs_TestImageWriter ${catkin_LIBRARIES})
+
+rs_add_executable(test_pass_through src/pass_through.cpp)
+target_link_libraries(test_pass_through ${PCL_LIBRARIES} ${catkin_LIBRARIES})

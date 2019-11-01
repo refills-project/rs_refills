@@ -23,6 +23,8 @@
 #include <rs/utils/time.h>
 #include <rs/utils/common.h>
 #include <rs/DrawingAnnotator.h>
+#include <rs/io/TFListenerProxy.h>
+
 
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
@@ -52,7 +54,8 @@ public:
   ros::NodeHandle nh_;
   tf::StampedTransform camToWorld_;
   sensor_msgs::CameraInfo camInfo_;
-  tf::TransformListener *listener;
+  rs::TFListenerProxy *listener_;
+
   ros::Subscriber barcodeSubscriber_;
   ros::Subscriber separatorSubscriber_;
 
@@ -92,6 +95,7 @@ public:
 
   //other
   std::string localFrameName_;
+  std::string lastQueryAsked_;
   float shelfmaxInlierDistance_;
 public:
 
@@ -106,7 +110,8 @@ public:
 
     normals_ = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
 
-    listener = new tf::TransformListener(nh_, ros::Duration(10.0));
+    listener_ = new rs::TFListenerProxy();
+//    listener = new tf::TransformListener(nh_, ros::Duration(10.0));
   }
 
   TyErrorId initialize(AnnotatorContext &ctx)
@@ -129,9 +134,10 @@ public:
     std::lock_guard<std::mutex> lock(lockBarcode_);
     tf::Stamped<tf::Pose> poseStamped, poseBase;
     tf::poseStampedMsgToTF(msg->barcode_pose, poseStamped);
+    outInfo("Barcode found");
     try {
-      listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
-      listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+      listener_->listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+      listener_->listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
       pcl::PointXYZRGBL pt;
       pt.x = poseBase.getOrigin().x();
       pt.y = poseBase.getOrigin().y();
@@ -147,12 +153,13 @@ public:
   void separatorAggregator(const refills_msgs::SeparatorArrayPtr &msg)
   {
     std::lock_guard<std::mutex> lock(lockSeparator_);
+    outInfo("Separator found");
     for(auto m : msg->separators) {
       tf::Stamped<tf::Pose> poseStamped, poseBase;
       tf::poseStampedMsgToTF(m.separator_pose, poseStamped);
       try {
-        listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
-        listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
+        listener_->listener->waitForTransform(localFrameName_, poseStamped.frame_id_, poseStamped.stamp_, ros::Duration(1.0));
+        listener_->listener->transformPose(localFrameName_, poseStamped.stamp_, poseStamped, poseStamped.frame_id_, poseBase);
 
         pcl::PointXYZRGBL pt;
         pt.x = poseBase.getOrigin().x();
@@ -267,7 +274,7 @@ public:
         layerType = "rack";
 
       outInfo("Separator in cluster: "<<sCount<<" Barcode In Cluster: "<<bCount<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
-//       outInfo("Separator in cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
+//       outInfo("Separator  cluster: "<<separatorIndices.indices.size()<<" Barcode In Cluster: "<<barcodeIndices.indices.size()<< " Ratio: "<< sCount/static_cast<float>(bCount)<<" is of type: "<<layerType<<"#"<<idx);
       detection.name.set(layerType + "#" + std::to_string(idx++));
 
 
