@@ -1,54 +1,30 @@
 %YAML:1.0
 names:
-   - shelf_system_0
-   - shelf_system_1
-   - shelf_system_2
-   - shelf_system_3
-shelf_system_0:
+   - shelf_system_verhuetung
+   - donbot_tray 
+shelf_system_verhuetung:
+   reference_frame: 'map'
    type: ShelfSystem
-   width: 0.35
-   height: 2.0 
-   depth: 1.0 
+   width: 0.30
+   height: 0.22 
+   depth: 0.35 
    transform: !!opencv-matrix
       rows: 4
       cols: 4
       dt: d
-      data: [ 1., 0., 0., 1.145, 0., 1., 0.,
-          -0.525, 0., 0., 1., 1.0, 0.,
+      data: [ 1., 0., 0., 1.8, 0., 1., 0.,
+          -1.38, 0., 0., 1., 1.075, 0.,
           0., 0., 1. ]
-shelf_system_1:
-   type: ShelfSystem
-   width: 0.35
-   height: 2.0 
-   depth: 1.0 
+donbot_tray:
+   reference_frame: 'base_footprint'
+   type: RobotPart 
+   width: 0.60
+   height: 0.60 
+   depth: 0.6 
    transform: !!opencv-matrix
       rows: 4
       cols: 4
       dt: d
-      data: [ 1., 0., 0., 2.145, 0., 1., 0.,
-          -0.525, 0., 0., 1., 1.0, 0.,
-          0., 0., 1. ]
-shelf_system_2:
-   type: ShelfSystem
-   width: 0.35
-   height: 2.0 
-   depth: 1.0 
-   transform: !!opencv-matrix
-      rows: 4
-      cols: 4
-      dt: d
-      data: [ 1., 0., 0., 3.145, 0., 1., 0.,
-          -0.525, 0., 0., 1., 1.0, 0.,
-          0., 0., 1. ]
-shelf_system_3:
-   type: ShelfSystem
-   width: 0.35
-   height: 2.0 
-   depth: 1.0 
-   transform: !!opencv-matrix
-      rows: 4
-      cols: 4
-      dt: d
-      data: [ 1., 0., 0., 4.145, 0., 1., 0.,
-          -0.525, 0., 0., 1., 1.0, 0.,
+      data: [ 1., 0., 0., -0.15, 0., 1., 0.,
+          0., 0., 0., 1., 0.62, 0.,
           0., 0., 1. ]
