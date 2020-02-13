@@ -1,11 +1,11 @@
 #include <uima/api.hpp>
 
 #include <pcl/point_types.h>
-#include <rs/types/all_types.h>
+#include <robosherlock/types/all_types.h>
 //RS
-#include <rs/scene_cas.h>
-#include <rs/utils/time.h>
-#include <rs/DrawingAnnotator.h>
+#include <robosherlock/scene_cas.h>
+#include <robosherlock/utils/time.h>
+#include <robosherlock/DrawingAnnotator.h>
 
 #include <ros/package.h>
 

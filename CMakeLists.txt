@@ -49,8 +49,6 @@ include_directories(
 ################################################################################
 ## Update analysis engines, typesystem and include all relevant files         ##
 ################################################################################
-##Update xml list of annotators inside analysis engines
-update_analysis_engines(robosherlock)
 ## generate classes from the typesystem xml files
 generate_type_system(robosherlock)
 #find all relevant files
@@ -77,8 +75,9 @@ target_link_libraries(processing_engine ${catkin_LIBRARIES})
 
 rs_add_library(rs_ImageSaver src/ImageSaver.cpp)
 target_link_libraries(rs_ImageSaver ${catkin_LIBRARIES})
+
 #rs_add_library(rs_TestImageWriter src/TestImageWriter.cpp)
 #target_link_libraries(rs_TestImageWriter ${catkin_LIBRARIES})
 
-rs_add_executable(test_pass_through src/pass_through.cpp)
-target_link_libraries(test_pass_through ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+#rs_add_executable(test_pass_through src/pass_through.cpp)
+#target_link_libraries(test_pass_through ${PCL_LIBRARIES} ${catkin_LIBRARIES})

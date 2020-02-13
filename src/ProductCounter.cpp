@@ -14,12 +14,12 @@
 #include <pcl/segmentation/organized_connected_component_segmentation.h>
 
 //RS
-#include <rs/scene_cas.h>
-#include <rs/utils/time.h>
-#include <rs/utils/common.h>
-#include <rs/types/all_types.h>
-#include <rs/DrawingAnnotator.h>
-#include <rs/io/TFListenerProxy.h>
+#include <robosherlock/scene_cas.h>
+#include <robosherlock/utils/time.h>
+#include <robosherlock/utils/common.h>
+#include <robosherlock/types/all_types.h>
+#include <robosherlock/DrawingAnnotator.h>
+#include <robosherlock/io/TFListenerProxy.h>
 
 
 
@@ -38,7 +38,7 @@
 #include <rapidjson/document.h>
 
 //json_prolog
-#include <rosprolog/PrologClient.h>
+#include <rosprolog/rosprolog_client/PrologClient.h>
 #include <refills_msgs/SeparatorArray.h>
 
 #include <boost/date_time/posix_time/posix_time.hpp>
@@ -233,8 +233,11 @@ public:
       if(facing.shelfType == Facing::ShelfType::STANDING) {
         //get the left and Right separators:
         plQuery.str(std::string(""));
-        plQuery << "rdf_has('" << facing.facingId << "', shop:leftSeparator, L), object_perception_affordance_frame_name(L,LFrameName),"
-                << "rdf_has('" << facing.facingId << "', shop:rightSeparator,R), object_perception_affordance_frame_name(R,RFrameName).";
+
+//        q = 'object_feature(\'{}\', Feature, dmshop:\'DMShelfPerceptionFeature\'),' \
+  //                          'object_frame_name(Feature,FeatureFrame).'.format(object_id)
+        plQuery << "rdf_has('" << facing.facingId << "', shop:leftSeparator, L), object_feature(L, LF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(LF,LFrameName),"
+                << "rdf_has('" << facing.facingId << "', shop:rightSeparator,R), object_feature(R, RF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(RF,RFrameName).";
         outInfo("Asking query: " << plQuery.str());
         bdgs = pl.query(plQuery.str());
         if(bdgs.begin() == bdgs.end()) {

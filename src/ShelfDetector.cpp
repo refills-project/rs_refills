@@ -18,12 +18,12 @@
 #include <pcl/common/transforms.h>
 #include <pcl/segmentation/conditional_euclidean_clustering.h>
 
-#include <rs/types/all_types.h>
-#include <rs/scene_cas.h>
-#include <rs/utils/time.h>
-#include <rs/utils/common.h>
-#include <rs/DrawingAnnotator.h>
-#include <rs/io/TFListenerProxy.h>
+#include <robosherlock/types/all_types.h>
+#include <robosherlock/scene_cas.h>
+#include <robosherlock/utils/time.h>
+#include <robosherlock/utils/common.h>
+#include <robosherlock/DrawingAnnotator.h>
+#include <robosherlock/io/TFListenerProxy.h>
 
 
 #include <rapidjson/rapidjson.h>

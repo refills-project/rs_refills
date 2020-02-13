@@ -1,11 +1,11 @@
 #include <uima/api.hpp>
 
 
-#include <rs/types/all_types.h>
-#include <rs/scene_cas.h>
-#include <rs/utils/time.h>
-#include <rs/DrawingAnnotator.h>
-#include <rs/utils/common.h>
+#include <robosherlock/types/all_types.h>
+#include <robosherlock/scene_cas.h>
+#include <robosherlock/utils/time.h>
+#include <robosherlock/DrawingAnnotator.h>
+#include <robosherlock/utils/common.h>
 
 #include <tf_conversions/tf_eigen.h>
 #include <tf/transform_listener.h>

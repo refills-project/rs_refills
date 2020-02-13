@@ -1,10 +1,10 @@
 #include <uima/api.hpp>
 
 #include <pcl/point_types.h>
-#include <rs/types/all_types.h>
+#include <robosherlock/types/all_types.h>
 //RS
-#include <rs/scene_cas.h>
-#include <rs/utils/time.h>
+#include <robosherlock/scene_cas.h>
+#include <robosherlock/utils/time.h>
 
 #include <opencv2/opencv.hpp>
 
@@ -15,7 +15,7 @@
 #include <rapidjson/istreamwrapper.h>
 
 #include <ros/package.h>
-#include <rs/DrawingAnnotator.h>
+#include <robosherlock/DrawingAnnotator.h>
 
 #include <boost/filesystem.hpp>
 
