@@ -44,33 +44,15 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/filesystem.hpp>
 
+#include <rs_refills/knowrob_queries.h>
+#include <rs_refills/facing.h>
+
 using namespace uima;
 
 
 class ProductCounter : public DrawingAnnotator
 {
 private:
-
-  struct Facing {
-
-    struct obj_dims {
-      double w, h, d;
-    } productDims;
-
-    double width;
-    double height;
-    enum class ShelfType {HANGING, STANDING};
-    ShelfType shelfType;
-
-    tf::Stamped<tf::Pose> leftSeparator, rightSeparator, topRightCorner;
-    std::string gtin;
-    std::string dan;
-    std::string productId;
-    std::string facingId;
-
-    cv::Rect rect, rect_hires_;
-    cv::Mat mask;
-  };
 
 
   bool external_, useLocalFrame_, saveImgFiles_;
@@ -214,14 +196,9 @@ public:
   {
     //owl_instance_from_class(shop:'ProductWithAN377954',I),object_dimensions(I,D,W,H).
     MEASURE_TIME;
-    std::stringstream plQuery;
-    PrologClient pl;
-    plQuery << "shelf_facing(F,'" << facing.facingId << "'),shelf_layer_standing(F).";
-
+    
     try {
-      outInfo("Asking query: " << plQuery.str());
-      PrologQuery bdgs = pl.query(plQuery.str());
-      if(bdgs.begin() == bdgs.end()) {
+      if(is_layer_hanging(facing.facingId)) {
         outInfo("facing is on a mounting hanging ");
         facing.shelfType =Facing::ShelfType::HANGING;
       }
@@ -232,26 +209,13 @@ public:
 
       if(facing.shelfType == Facing::ShelfType::STANDING) {
         //get the left and Right separators:
-        plQuery.str(std::string(""));
 
-//        q = 'object_feature(\'{}\', Feature, dmshop:\'DMShelfPerceptionFeature\'),' \
-  //                          'object_frame_name(Feature,FeatureFrame).'.format(object_id)
-        plQuery << "rdf_has('" << facing.facingId << "', shop:leftSeparator, L), object_feature(L, LF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(LF,LFrameName),"
-                << "rdf_has('" << facing.facingId << "', shop:rightSeparator,R), object_feature(R, RF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(RF,RFrameName).";
-        outInfo("Asking query: " << plQuery.str());
-        bdgs = pl.query(plQuery.str());
-        if(bdgs.begin() == bdgs.end()) {
+        std::string leftSepTFId, rightSepTFId;
+        if(!get_separator_frame_ids_for_facing(facing.facingId, leftSepTFId, rightSepTFId)) {
           outError("No results found the left and right separator. are you sure this is the right facing type?");
           return false;
         }
-        std::string leftSepTFId, rightSepTFId;
-        for(auto bdg : bdgs) {
-          leftSepTFId = bdg["LFrameName"].toString();
-//          leftSepTFId = leftSepTFId.substr(1, leftSepTFId.size() - 2);
-          rightSepTFId = bdg["RFrameName"].toString();
-//          rightSepTFId = rightSepTFId.substr(1, rightSepTFId.size() - 2);
-          break;
-        }
+        
         tf::StampedTransform leftSep, rightSep;
         try{
         listener_->listener->waitForTransform(localFrameName_, leftSepTFId, ros::Time(0), ros::Duration(2.0));
@@ -273,21 +237,14 @@ public:
         facing.rightSeparator.frame_id_ = rightSep.frame_id_;
         facing.rightSeparator.stamp_ = rightSep.stamp_;
       }
+
       else if(facing.shelfType == Facing::ShelfType::HANGING) {
-        plQuery.str(std::string(""));
-        plQuery << "rdf_has('" << facing.facingId << "', shop:mountingBarOfFacing, M), object_perception_affordance_frame_name(M,MFrameName).";
-        outInfo("Asking query: " << plQuery.str());
-        bdgs = pl.query(plQuery.str());
-        if(bdgs.begin() == bdgs.end()) {
+        std::string mountingBarTFId;
+        if(!get_mounting_bar_frame_id_for_facing(facing.facingId, mountingBarTFId)) {
           outError("This Facing has no mountint Bar...WTF");
           return false;
         }
-        std::string mountingBarTFId;
-        for(auto bdg : bdgs) {
-          mountingBarTFId = bdg["MFrameName"].toString();
-//          mountingBarTFId = mountingBarTFId.substr(1, mountingBarTFId.size() - 2);
-          break;
-        }
+
         tf::StampedTransform mountingBar;
         listener_->listener->lookupTransform(localFrameName_, mountingBarTFId, ros::Time(0), mountingBar);
         facing.leftSeparator.setRotation(mountingBar.getRotation());
@@ -296,63 +253,14 @@ public:
         facing.leftSeparator.stamp_ = mountingBar.stamp_;
       }
 
-      //get dimenstions and product type of facing
-      plQuery.str(std::string());
-      plQuery << "shelf_facing_product_type('" << facing.facingId << "', P),"
-              << "owl_has(P, 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Z),"
-              << "owl_restriction(Z,restriction(shop:'articleNumberOfProduct',has_value(AN))),"
-              << "rdf_has(AN, shop:dan, literal(type(_,DAN))),"
-              << "comp_facingWidth('" << facing.facingId << "', W),"
-              << "comp_facingHeight('" << facing.facingId << "',H).";
-      outInfo("Asking query: " << plQuery.str());
-      bdgs = pl.query(plQuery.str());
-      if(bdgs.begin() == bdgs.end()) {
+      if(!get_facing_dimensions(facing.facingId, facing)) {
         outError("Facing: " << facing.facingId << " has no width, height, or product type defined");
         return false;
       }
-      for(auto bdg : bdgs) {
-        facing.width = bdg["W"];
-        facing.height = bdg["H"];
-        facing.productId = bdg["P"].toString();
-        facing.gtin = bdg["AN"].toString();
-        facing.dan = bdg["DAN"].toString();
-        size_t loc = facing.gtin.find_last_of("GTIN_");
-//      size_t loc2 = facing.dan.find_last_of("AN");
-        loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc+1, facing.gtin.size() - loc-2) : facing.gtin = "";
-//        loc != std::string::npos ? facing.gtin = facing.gtin.substr(loc + 1, facing.gtin.size() - loc - 2) : facing.gtin = "";
-//        loc2 != std::string::npos ? facing.dan = facing.dan.substr(loc2 + 1, facing.dan.size() - loc2 - 2) : facing.dan = "";
-      }
-
+      
       //get the dimenstions of the product on the facing
-      plQuery.str(std::string());
-
-      plQuery<< "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zd),"
-             << "owl_restriction(Zd,restriction(shop:'depthOfProduct',has_value(literal(type(_,D_XSD))))),atom_number(D_XSD,D),"
-             << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zw),"
-             << "owl_restriction(Zw,restriction(shop:'widthOfProduct',has_value(literal(type(_,W_XSD))))),atom_number(W_XSD,W),"
-             << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zh),"
-             << "owl_restriction(Zh,restriction(shop:'heightOfProduct',has_value(literal(type(_,H_XSD))))),atom_number(H_XSD,H).";
-
-//      plQuery << "owl_class_properties(" << facing.productId << ",shop:depthOfProduct," <<
-//              "literal(type(_,D_XSD))),atom_number(D_XSD,D),"
-//              << "owl_class_properties(" << facing.productId << ",shop:widthOfProduct," <<
-//              "literal(type(_,W_XSD))),atom_number(W_XSD,W),"
-//              << "owl_class_properties(" << facing.productId << ",shop:heightOfProduct," <<
-//              "literal(type(_,H_XSD))),atom_number(H_XSD,H),!.";
-      outInfo("Asking query: " << plQuery.str());
-      bdgs = pl.query(plQuery.str());
-      if(bdgs.begin() == bdgs.end()) {
-        outWarn("No solution to query: " << plQuery.str());
-        facing.productDims.d = 0.41;
-        facing.productDims.h = facing.height;
-        facing.productDims.w = facing.width;
-      }
-      for(auto bdg : bdgs) {
-        facing.productDims.d = bdg["D"];
-        facing.productDims.h = bdg["H"];
-        facing.productDims.w = bdg["W"];
-        break;
-      }
+      get_product_dim_for_facing(facing);
+    
     }
     catch(tf::TransformException &ex) {
       outError("Exception: " << ex.what());
