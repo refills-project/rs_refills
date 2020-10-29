@@ -23,9 +23,9 @@ inline bool get_facing_dimensions(const std::string &facing_id, Facing &facing)
   std::stringstream plQuery;
   PrologClient pl;
   plQuery << "shelf_facing_product_type('" << facing.facingId << "', P),"
-          << "owl_has(P, 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Z),"
-          << "owl_restriction(Z,restriction(shop:'articleNumberOfProduct',has_value(AN))),"
-          << "rdf_has(AN, shop:dan, literal(type(_,DAN))),"
+          << "subclass_of(P, Z),"
+          << "has_description(Z,value(shop:'articleNumberOfProduct', AN)),"
+          << "triple(AN, shop:dan, DAN),"
           << "comp_facingWidth('" << facing.facingId << "', W),"
           << "comp_facingHeight('" << facing.facingId << "',H).";
    outInfo("Asking query: " << plQuery.str());
@@ -53,12 +53,12 @@ inline bool get_product_dim_for_facing(Facing &facing)
 
   std::stringstream plQuery;
   PrologClient pl;
-  plQuery<< "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zd),"
-         << "owl_restriction(Zd,restriction(shop:'depthOfProduct',has_value(literal(type(_,D_XSD))))),atom_number(D_XSD,D),"
-         << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zw),"
-         << "owl_restriction(Zw,restriction(shop:'widthOfProduct',has_value(literal(type(_,W_XSD))))),atom_number(W_XSD,W),"
-         << "owl_has('"<<facing.productId<<"', 'http://www.w3.org/2000/01/rdf-schema#subClassOf',Zh),"
-         << "owl_restriction(Zh,restriction(shop:'heightOfProduct',has_value(literal(type(_,H_XSD))))),atom_number(H_XSD,H).";
+  plQuery << "subclass_of('" << facing.productId << "', Zd),"
+          << "has_description(Zd,value(shop:'depthOfProduct', D)),"
+          << "subclass_of('" << facing.productId << "', Zw),"
+          << "has_description(Zw,value(shop:'widthOfProduct', W)),"
+          << "subclass_of('" << facing.productId << "', Zh),"
+          << "has_description(Zh,value(shop:'heightOfProduct', H)).";
 
   outInfo("Asking query: " << plQuery.str());
   PrologQuery bdgs = pl.query(plQuery.str());
@@ -83,9 +83,9 @@ inline bool get_separator_frame_ids_for_facing(const std::string &facing_id, std
    std::stringstream plQuery;
    PrologClient pl;
 
-   plQuery << "rdf_has('" << facing_id << "', shop:leftSeparator, L), object_feature(L, LF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(LF,LFrameName),"
-           << "rdf_has('" << facing_id << "', shop:rightSeparator,R), object_feature(R, RF, dmshop:'DMShelfPerceptionFeature'),object_frame_name(RF,RFrameName).";
-   
+   plQuery << "triple('" << facing_id << "', shop:leftSeparator, L), object_feature_type(L, LF, dmshop:'DMShelfPerceptionFeature'),holds(LF,knowrob:frameName, LFrameName),"
+           << "triple('" << facing_id << "', shop:rightSeparator,R), object_feature_type(R, RF, dmshop:'DMShelfPerceptionFeature'),holds(RF, knowrob:frameName, RFrameName).";
+
    outInfo("Asking query: " << plQuery.str());
    PrologQuery bdgs = pl.query(plQuery.str());
    if (bdgs.begin() == bdgs.end())
@@ -106,8 +106,9 @@ inline bool get_mounting_bar_frame_id_for_facing(const std::string &facing_id, s
 {
    std::stringstream plQuery;
    PrologClient pl;
-   plQuery << "rdf_has('" << facing_id
-           << "', shop:mountingBarOfFacing, M), object_perception_affordance_frame_name(M,MFrameName).";
+   plQuery << "triple('" << facing_id
+           << "', shop:mountingBarOfFacing, M), triple(Obj, knowrob:hasAffordance, Affordance), instance_of(Affordance,"
+           << "knowrob:PerceptionAffordance), holds(Affordance, knowrob:frameName, AffFrameName).";
    outInfo("Asking query: " << plQuery.str());
    PrologQuery bdgs = pl.query(plQuery.str());
    if (bdgs.begin() == bdgs.end())
