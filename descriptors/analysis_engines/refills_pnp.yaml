@@ -1,0 +1,36 @@
+ae:
+  name: refills_pnp
+  description: picking and placing an object from one shelf layer to another in the mockup store
+fixedflow:
+# - Trigger
+  - CollectionReader
+  - ImagePreprocessor
+  - RegionFilter
+  - NormalEstimator
+  - PlaneAnnotator
+  - PointCloudClusterExtractor
+  - ClusterMerger
+  - PrimitiveShapeAnnotator
+  - Cluster3DGeometryAnnotator
+  - ClusterColorHistogramCalculator
+  - CaffeAnnotator  
+  - KnnAnnotator
+  - StorageWriter
+CollectionReader:
+  camera_config_files: ['config_realsense_donbot.ini']
+RegionFilter:
+  defaultRegions:
+    - shelf_system_verhuetung 
+  semantic_map_definition: "semantic_map_refills.yaml"
+  enable_change_detection: false
+PointCloudClusterExtractor:
+  cluster_tolerance: 0.09
+  cluster_min_size: 1400
+  cluster_max_size: 30000
+  mode: OEC
+KnnAnnotator:
+  class_label_mapping: extracted_feats/BVLC_REF_ClassLabel_refills_pnp_objs.txt
+  training_data: extracted_feats/BVLC_REF_data_refills_pnp_objs.yaml 
+StorageWriter:
+  storagedb: Refills_pnp
+  enableViews: ['color_image_hd', 'depth_image_hd', 'camera_info', 'camera_info_hd', 'scene']  
