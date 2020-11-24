@@ -1,0 +1,23 @@
+ae:
+  name: scenario3_demo
+fixedflow:
+#  - Trigger
+  - CollectionReader
+  - ImagePreprocessor
+  - PointCloudFilter
+  - NormalEstimator
+  - PlaneAnnotator
+  - PointCloudClusterExtractor
+  - ClusterMerger 
+#  - PrimitiveShapeAnnotator
+  - Cluster3DGeometryAnnotator
+CollectionReader:
+  camera_config_files: ['config_realsense_donbot.ini']
+
+PointCloudFilter:
+  minX: -0.3
+  maxX: 0.5
+  minY: -0.8
+  maxY: 0.2
+  minZ: 0.3
+  maxZ: 1.1
